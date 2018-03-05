@@ -10,7 +10,7 @@ setup:
 	raco setup $(COLLECTS)
 
 link:
-	raco pkg install --link -n $(PACKAGENAME) $$(pwd)
+	raco pkg install --link -n $(PACKAGENAME) $(CURDIR)/src
 
 unlink:
 	raco pkg remove $(PACKAGENAME)
