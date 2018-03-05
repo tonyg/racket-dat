@@ -3,10 +3,12 @@
 ;; Appendix to <https://datproject.org/paper> (locally <../doc/dat-paper.pdf>)
 
 (require racket/match)
+(require (only-in racket/file file->bytes))
 
 (require bitsyntax)
 (require protobuf)
 
+(require "link.rkt")
 (require "node-index.rkt")
 
 (module+ test (require rackunit))
@@ -108,7 +110,7 @@
 ;;        protocol).
 
 (struct repository (metadata content) #:transparent)
-(struct register (tree data-input data-output) #:transparent)
+(struct register (tree data-input data-output key) #:transparent)
 (struct sleep-file (input-port output-port magic entry-size algorithm) #:transparent)
 
 (define BITFIELD_MAGIC #x05025700)
@@ -182,10 +184,12 @@
   (define (p suffix) (string-append (path->string path) suffix))
   (define (i suffix) (open-input-file (p suffix)))
   (define (o suffix) (open-output-file (p suffix) #:exists 'append))
-  (and (and (file-exists? (p ".tree")))
+  (and (and (file-exists? (p ".tree"))
+            (file-exists? (p ".key")))
        (register (open-sleep-file (i ".tree") (o ".tree"))
                  (and (file-exists? (p ".data")) (i ".data"))
-                 (and (file-exists? (p ".data")) (o ".data")))))
+                 (and (file-exists? (p ".data")) (o ".data"))
+                 (file->bytes (p ".key")))))
 
 (define (read-register-chunk r chunk-index)
   (define port (register-data-input r))
@@ -208,6 +212,9 @@
                    (and (equal? "hyperdrive" (MetadataHeader-type header))
                         r))
                   (else #f)))))))
+
+(define (repository-link r)
+  (dat-link (register-key (repository-metadata r))))
 
 (define-protobuf-message MetadataHeader
   required string type = 1

@@ -1,8 +1,12 @@
 #lang racket/base
 ;; A Dat link is a 32-byte Ed25519 public signing key.
 
+(provide (struct-out dat-link)
+         string->dat-link
+         dat-link->string)
+
 (require racket/match)
-(require (only-in file/sha1 hex-string->bytes))
+(require (only-in file/sha1 hex-string->bytes bytes->hex-string))
 
 (module+ test (require rackunit))
 
@@ -17,6 +21,9 @@
     [(regexp #px"(?i:https?://datproject.org/([0-9a-f]{64}))" (list _ kh))
      (dat-link (hex-string->bytes kh))]
     [_ #f]))
+
+(define (dat-link->string d)
+  (format "dat://~a" (bytes->hex-string (dat-link-public-key-bytes d))))
 
 (module+ test
   (define H "de1042928b74e9f96cf3f3e290c16cb4eba9c696e9a1e15c7f4d0514ddce1154")
