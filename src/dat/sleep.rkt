@@ -2,6 +2,32 @@
 ;; SLEEP - Syncable Ledger of Exact Events Protocol ("SLEEP v2")
 ;; Appendix to <https://datproject.org/paper> (locally <../doc/dat-paper.pdf>)
 
+(provide (struct-out repository)
+         (struct-out register)
+         (struct-out sleep-file)
+
+         (struct-out tree-node)
+
+         open-sleep-file
+         sleep-file-read-raw-entry
+         sleep-file-write-raw-entry!
+         sleep-file-entry-count
+
+         read-tree-node
+         read-tree-node-length
+         chunk-location
+
+         open-register
+         read-register-chunk
+
+         open-repository
+         repository-link
+
+         (struct-out MetadataHeader)
+         (struct-out MetadataNode)
+         (struct-out MetadataWriter)
+         (struct-out MetadataStat))
+
 (require racket/match)
 (require (only-in racket/file file->bytes))
 
