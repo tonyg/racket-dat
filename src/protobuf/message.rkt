@@ -113,8 +113,8 @@
     ['bool (ks (positive? body))]
     [(or 'uint64 'uint32) (ks body)]
     [(or 'sint64 'sint32) (ks (wire:zig-zag-> body))]
-    ['int64 (ks (integer-bytes->integer (integer->integer-bytes 8 #f) #t))]
-    ['int32 (ks (integer-bytes->integer (integer->integer-bytes 4 #f) #t))]
+    ['int64 (ks (integer-bytes->integer (integer->integer-bytes body 8 #f) #t))]
+    ['int32 (ks (integer-bytes->integer (integer->integer-bytes body 4 #f) #t))]
     [other (message-> (lookup-message-type other) body (lambda (v _rest) (ks v)) kf)]))
 
 (define (->field mt name index type-id v)
@@ -125,8 +125,8 @@
       ['bool (values 'varint (if v 1 0))]
       [(or 'uint64 'uint32) (values 'varint v)]
       [(or 'sint64 'sint32) (values 'varint (wire:->zig-zag v))]
-      ['int64 (values 'varint (integer-bytes->integer (integer->integer-bytes 8 #t) #f))]
-      ['int32 (values 'varint (integer-bytes->integer (integer->integer-bytes 4 #t) #f))]
+      ['int64 (values 'varint (integer-bytes->integer (integer->integer-bytes v 8 #t) #f))]
+      ['int32 (values 'varint (integer-bytes->integer (integer->integer-bytes v 4 #t) #f))]
       [other
        (when (not (eq? (message-type-name (protobuf-message-type-descriptor v)) other))
          (error '->field
