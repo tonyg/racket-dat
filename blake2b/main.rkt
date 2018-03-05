@@ -133,13 +133,16 @@
 
 (struct blake2b-context (h buf [fill #:mutable] [t #:mutable] digest-byte-count))
 
-;; PRECONDITION: 0 < digest-byte-count <= 64
-;; PRECONDITION: 0 <= (bytes-length key) <= 64
 (define (blake2b-init digest-byte-count key)
+  (define key-length (bytes-length key))
+  (when (or (<= digest-byte-count 0) (> digest-byte-count 64))
+    (error 'blake2b-init "digest-byte-count must be >0 and <=64: ~v" digest-byte-count))
+  (when (> key-length 64)
+    (error 'blake2b-init "key must not be longer than 64 bytes; got ~v bytes" key-length))
   (define h (vector-copy IV))
   (@= h 0 (^/64 (@ h 0)
                 #x01010000 ;; NB. hex, not binary
-                (arithmetic-shift (bytes-length key) 8)
+                (arithmetic-shift key-length 8)
                 digest-byte-count))
   (define buf (make-bytes 128 0))
   (define ctx
@@ -148,7 +151,7 @@
                      0
                      0
                      digest-byte-count))
-  (when (positive? (bytes-length key))
+  (when (positive? key-length)
     (bytes-copy! buf 0 key)
     (set-blake2b-context-fill! ctx 128))
   ctx)
