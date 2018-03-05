@@ -26,14 +26,14 @@
   (bitwise-and mask64 (+ arg ...)))
 
 (define-syntax-rule (^/64 arg ...)
-  (bitwise-and mask64 (bitwise-xor arg ...)))
+  ;; Optimization: do not clamp to mask64 here, since we know at every
+  ;; use site that the arguments are in range and that the result will
+  ;; be clamped properly soon.
+  (bitwise-xor arg ...))
 
-(define (<<< n by0)
-  (define by (modulo by0 64))
-  (bitwise-ior (bitwise-and mask64 (arithmetic-shift n by))
-	       (bitwise-and mask64 (arithmetic-shift n (- by 64)))))
-
-(define (>>> a b) (<<< a (- b)))
+(define (>>> n by)
+  (bitwise-and mask64 (bitwise-ior (arithmetic-shift n (- by))
+                                   (arithmetic-shift n (- 64 by)))))
 
 (define-syntax-rule (@ v x) (vector-ref v x))
 (define-syntax-rule (@= v x y) (vector-set! v x y))
@@ -153,8 +153,8 @@
     (set-blake2b-context-fill! ctx 128))
   ctx)
 
-(define (bytes-block->words-block block)
-  (for/vector [(i (in-range 0 128 8))]
+(define (bytes-block->words-block block offset)
+  (for/vector [(i (in-range offset (+ offset 128) 8))]
     (integer-bytes->integer block #f #f i (+ i 8))))
 
 (define (words-block->bytes-block h digest-byte-count)
@@ -174,12 +174,17 @@
                (set-blake2b-context-t! ctx t)
                ctx)
         (let ((fill-this-round (min (- 128 fill) remaining-data)))
-          (bytes-copy! buf fill data i (+ i fill-this-round))
-          (set! fill (+ fill fill-this-round))
-          (set! t (+ t fill-this-round))
-          (when (= fill 128)
-            (F h (bytes-block->words-block buf) t #f)
-            (set! fill 0))
+          (if (= fill-this-round 128)
+              (begin
+                (set! t (+ t 128))
+                (F h (bytes-block->words-block data i) t #f))
+              (begin
+                (bytes-copy! buf fill data i (+ i fill-this-round))
+                (set! fill (+ fill fill-this-round))
+                (set! t (+ t fill-this-round))
+                (when (= fill 128)
+                  (F h (bytes-block->words-block buf 0) t #f)
+                  (set! fill 0))))
           (loop (+ i fill-this-round))))))
 
 (define (blake2b-finish! ctx)
@@ -187,7 +192,7 @@
   (for [(i (in-range fill 128))]
     (bytes-set! buf i 0))
   (set! fill #f)
-  (F h (bytes-block->words-block buf) t #t)
+  (F h (bytes-block->words-block buf 0) t #t)
   (words-block->bytes-block h digest-byte-count))
 
 (define (blake2b-hash digest-byte-count data #:key [key #""])
