@@ -28,13 +28,13 @@
        (stop-when-reloaded)
 
        (during (local-node $local-id)
-         (during/spawn (node-bucket _ $bucket)
+         (during/spawn (node-bucket $bucket _)
            #:name (list 'kademlia-bucket bucket)
 
            (field [refresh-time (current-inexact-milliseconds)]
                   [nodes (set)])
 
-           (during (node-bucket $id bucket)
+           (during (node-bucket bucket $id)
              (on-start (refresh-time (current-inexact-milliseconds)))
              (during (node-coordinates id $peer $timestamp)
                (on-start (nodes (set-add (nodes) (node-coordinates id peer timestamp))))

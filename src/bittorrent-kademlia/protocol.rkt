@@ -12,7 +12,7 @@
 
 (assertion-struct known-node (id))
 (assertion-struct node-coordinates (id peer timestamp))
-(assertion-struct node-bucket (id bucket))
+(assertion-struct node-bucket (bucket id))
 
 (message-struct discovered-node (id peer))
 (message-struct discard-node (id))

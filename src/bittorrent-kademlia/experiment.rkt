@@ -100,7 +100,7 @@
   (stop-when (message (discard-node id)))
 
   (during (local-node $local-id)
-    (assert #:when (ok?) (node-bucket id (node-id->bucket id local-id)))
+    (assert #:when (ok?) (node-bucket (node-id->bucket id local-id) id))
 
     (during (later-than (+ (time-last-heard-from) (* 15 60 1000)))
       (on-start
