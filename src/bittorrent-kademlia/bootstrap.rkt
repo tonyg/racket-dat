@@ -20,7 +20,7 @@
          (during (local-node $local-id)
            (during (fresh-transaction (list 'bootstrap-ping peer) $txn)
              (on-start
-              (let retry ((retry-count 0))
+              (let retry ((attempt-count 0))
                 (react (on-start (send! (krpc-packet 'outbound
                                                      peer
                                                      txn
@@ -28,15 +28,16 @@
                                                      (list #"ping"
                                                            (hash #"id" local-id)))))
                        (stop-when-timeout 2000
-                         (log-info "Timeout contacting bootstrap node ~a:~a" host port)
-                         (if (< retry-count 10)
-                             (retry (+ retry-count 1))
+                         (log-info "Timeout #~a contacting bootstrap node ~a:~a"
+                                   (+ attempt-count 1) host port)
+                         (if (< attempt-count 10)
+                             (retry (+ attempt-count 1))
                              (log-info "Too many retries contacting bootstrap node ~a:~a"
                                        host port)))
                        (stop-when (message (krpc-packet 'inbound _ txn 'error $details))
                          (log-info "Bootstrap ping error: ~v" details))
                        (stop-when (message (krpc-packet 'inbound _ txn 'response $details))
-                         (send! (discovered-node (hash-ref details #"id") peer))
+                         (suggest-node! 'krpc-reply (hash-ref details #"id") peer)
                          (stop-facet root-facet-id)))))))))
 
 (spawn #:name 'kademlia-bootstrap-monitor

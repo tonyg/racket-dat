@@ -11,53 +11,15 @@
 (require "wire.rkt")
 (require "protocol.rkt")
 
-(spawn #:name 'experiment
-       (stop-when-reloaded)
-
-       (during (local-node $local-id)
-         (assert (locate-node local-id))
-         (during (closest-nodes-to local-id $ids)
-           (log-info "Closest to self: ~a" (map bytes->hex-string ids)))))
-
 (spawn #:name 'memo-table
        (stop-when-reloaded)
-       (during (observe (memoized (krpc-transaction $src $tgt $txn $method $args _)))
-         (stop-when (asserted (krpc-transaction src tgt txn method args $result))
-           (react (assert (memoized (krpc-transaction src tgt txn method args result)))
-                  (stop-when-timeout 30000)))))
-
-(spawn #:name 'closest-nodes-monitor
-       (stop-when-reloaded)
-
-       (during (local-node $local-id)
-         (during/spawn (locate-node $target-id)
-           (stop-when-reloaded)
-           (define/query-set all-nodes (node-coordinates $i _ _) i)
-           (field [sorted-nodes '()])
-           (begin/dataflow
-             (let ((new-best (take-at-most K (sort (set->list (all-nodes))
-                                                   (distance-to-<? target-id)))))
-               (unless (equal? (sorted-nodes) new-best) (sorted-nodes new-best))))
-           (assert (closest-nodes-to target-id (sorted-nodes)))
-           (begin/dataflow
-             (log-info "Finding ~a: closest ~a"
-                       (bytes->hex-string target-id)
-                       (map bytes->hex-string (sorted-nodes)))
-             (for [(id (sorted-nodes))]
-               (react
-                (stop-when (asserted
-                            (memoized (krpc-transaction local-id
-                                                        id
-                                                        (list 'find_node target-id)
-                                                        #"find_node"
-                                                        (hash #"id" local-id #"target" target-id)
-                                                        $results)))
-                  (when (hash? results)
-                    (for [(p (extract-peers (hash-ref results #"nodes" #"")))]
-                      ;; (log-info "Learned about ~a from ~a"
-                      ;;           (bytes->hex-string (car p))
-                      ;;           (bytes->hex-string id))
-                      (send! (discovered-node (car p) (cadr p))))))))))))
+       (during (observe (memoized (krpc-transaction $src $tgt $pr $txn $method $args _)))
+         (assert (observe (memoized (krpc-transaction src tgt pr txn method args _))))
+         (stop-when-timeout 30000)
+         (on-start
+          (react
+           (stop-when (asserted (krpc-transaction src tgt pr txn method args $result))
+             (react (assert (memoized (krpc-transaction src tgt pr txn method args result)))))))))
 
 (spawn #:name 'node-factory
        (stop-when-reloaded)
@@ -72,56 +34,85 @@
                     (on-stop (log-info "Terminated node ~a at ~a" (bytes->hex-string id) peer))
                     (node-main id peer)))))
 
-(define (node-main id peer)
-  (field [time-last-heard-from 0]
+(define (node-main id initial-peer)
+  (field [time-last-heard-from (current-inexact-milliseconds)]
          [timeout-counter 0]
-         [ok? #t])
+         [ok? #t]
+         [peer initial-peer])
+
+  (define node-root-facet (current-facet-id))
 
   (assert (known-node id))
-  (assert #:when (ok?) (node-coordinates id peer (time-last-heard-from)))
+  (assert #:when (ok?) (node-coordinates id (peer) (time-last-heard-from)))
 
-  (on (message (transaction-resolution id 'timeout))
+  (on (message (discovered-node id $new-peer))
+      (when (not (equal? (peer) new-peer))
+        (log-info "Node ~a changed IP/port: from ~a to ~a"
+                  (bytes->hex-string id)
+                  (peer)
+                  new-peer)
+        (peer new-peer)))
+
+  (on (message (node-activity id 'timeout))
       (timeout-counter (+ (timeout-counter) 1)))
 
-  (on (message (transaction-resolution id 'reply))
+  (on (message (node-activity id 'activity))
       (time-last-heard-from (current-inexact-milliseconds))
       (timeout-counter 0))
 
   (begin/dataflow
-    (when (>= (timeout-counter) 5)
+    (when (>= (timeout-counter) 3)
+      (log-info "Too many timeouts for node ~a" (bytes->hex-string id))
       (ok? #f)))
 
   (begin/dataflow
     (when (not (ok?))
       (log-info "Node ~a no longer ok" (bytes->hex-string id))
-      (react (stop-when-timeout (* 60 1000) (send! (discard-node id)))
+      (react (stop-when-timeout (* 60 1000) (stop-facet node-root-facet))
              (stop-when-true (ok?) (log-info "Node ~a is ok again" (bytes->hex-string id))))))
 
-  (stop-when (message (discard-node id)))
+  (on (message (discard-node id))
+      (log-info "Discarding node ~a" (bytes->hex-string id))
+      (ok? #f))
 
   (during (local-node $local-id)
     (assert #:when (ok?) (node-bucket (node-id->bucket id local-id) id))
 
-    (during (later-than (+ (time-last-heard-from) (* 15 60 1000)))
-      (on-start
-       (log-info "Node ~a became questionable" (bytes->hex-string id))
-       (let try-pinging ((ping-count 0))
-         (log-info "Questionable node ~a, pinging (~a attempts made already)"
-                   (bytes->hex-string id)
-                   ping-count)
-         (react
-          (stop-when (asserted (krpc-transaction local-id
-                                                 id
-                                                 (list 'ping id)
-                                                 #"ping"
-                                                 (hash #"id" id)
-                                                 $results))
-            (when (eq? results 'timeout) ;; error or reply are a response!
-              (if (< ping-count 1)
-                  (try-pinging (+ ping-count 1))
-                  (ok? #f)))))))
-      (on-stop
-       (log-info "Node ~a became good or was terminated" (bytes->hex-string id)))))
+    (define (ping-until-fresh-or-bad)
+      (define snapshot-time-last-heard-from (time-last-heard-from))
+      (log-info "Node ~a became questionable" (bytes->hex-string id))
+      (let try-pinging ((ping-count 0))
+        (cond
+          [(> (time-last-heard-from) snapshot-time-last-heard-from)
+           (log-info "Activity from node ~a, no longer questionable" (bytes->hex-string id))]
+          [(not (ok?))
+           (log-info "Stopped pinging ~a; questionable node now deemed not OK"
+                     (bytes->hex-string id))]
+          [else
+           (log-info "Questionable node ~a, pinging (~a attempts made already)"
+                     (bytes->hex-string id)
+                     ping-count)
+           ;; Ignore the result, except for checking for errors: we
+           ;; really only care whether time-last-heard-from is
+           ;; advanced somehow!
+           (match (do-krpc-transaction local-id id (list 'ping id (gensym))
+                                       #"ping" (hash #"id" id))
+             ['error
+              (log-info "Error pinging node ~a" (bytes->hex-string id))
+              (ok? #f)]
+             [_ ;; timeout or reply
+              (try-pinging (+ ping-count 1))])])))
+
+    ;; Ping questionable node after 15 minutes of inactivity:
+    (on (asserted (later-than (+ (time-last-heard-from) (* 15 60 1000))))
+        (ping-until-fresh-or-bad))
+
+    ;; Also, ping on startup after 30 seconds if we haven't had activity yet:
+    (on-start (define snapshot-time-last-heard-from (time-last-heard-from))
+              (sleep 30)
+              (when (equal? snapshot-time-last-heard-from (time-last-heard-from))
+                (log-info "Starting initial ping for ~a" (bytes->hex-string id))
+                (ping-until-fresh-or-bad))))
 
   (begin/dataflow (log-info "Node ~a: timestamp ~a" (bytes->hex-string id) (time-last-heard-from)))
   (begin/dataflow (log-info "Timeouts ~a: ~a" (bytes->hex-string id) (timeout-counter))))

@@ -1,11 +1,13 @@
-#lang racket/base
+#lang syndicate
 
 (provide (all-defined-out))
 
 (require racket/match)
+(require racket/set)
+(require (only-in file/sha1 bytes->hex-string))
+(require (only-in racket/string string-split))
 
 (require bitsyntax)
-(require syndicate)
 (require syndicate/drivers/udp)
 
 (assertion-struct local-node (id))
@@ -21,12 +23,14 @@
 
 (assertion-struct krpc-ready ())
 (message-struct krpc-packet (direction peer id type body))
-(assertion-struct krpc-transaction (source-id target-id transaction-name method args results))
-(message-struct transaction-resolution (node-id resolution))
+(assertion-struct krpc-transaction
+  (source-id target-id maybe-peer transaction-name method args results))
+(message-struct node-activity (node type))
 (assertion-struct memoized (transaction))
 
-(assertion-struct locate-node (id))
-(assertion-struct closest-nodes-to (id ids))
+;; Client API
+(assertion-struct locate-node (id fill-routing-table?))
+(assertion-struct closest-nodes-to (id nodes/peers final?))
 
 (define K 8)
 
@@ -83,3 +87,32 @@
   (cond [(zero? n) '()]
         [(null? xs) '()]
         [else (cons (car xs) (take-at-most (- n 1) (cdr xs)))]))
+
+(define (query-all-nodes)
+  (set->list (immediate-query [query-set (node-coordinates $i $p _) (list i p)])))
+
+(define (K-closest nodes/peers target-id #:K [k K])
+  (take-at-most k (sort nodes/peers #:key car (distance-to-<? target-id))))
+
+(define (do-krpc-transaction source-id target-id transaction-name method args #:peer [peer #f])
+  (react/suspend (k)
+    (stop-when (asserted
+                (memoized
+                 (krpc-transaction source-id target-id peer transaction-name method args $results)))
+      (k results))))
+
+(define (suggest-node! source id peer)
+  (match-define (udp-remote-address host port) peer)
+  (match (map string->number (string-split host "."))
+    [(or (list 10 _ _ _)
+         (list 172 (? (lambda (b) (and (>= b 16) (< b 32)))) _ _)
+         (list 192 168 _ _))
+     (log-info "Ignoring RFC 1918 network for ~a (~a) via ~a"
+               (bytes->hex-string id) peer source)]
+    [_
+     (log-info "Suggested node ~a (~a) via ~a" (bytes->hex-string id) peer source)
+     (send! (discovered-node id peer))]))
+
+(define (format-nodes/peers ns)
+  (for/list [(n ns)]
+    (format "~a(~a)" (bytes->hex-string (car n)) (cdr n))))

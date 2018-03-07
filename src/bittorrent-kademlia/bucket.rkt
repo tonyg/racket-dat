@@ -1,7 +1,7 @@
 #lang syndicate
 
 (require (only-in racket/list partition))
-(require (only-in racket/random crypto-random-bytes))
+(require (only-in racket/random crypto-random-bytes random-ref))
 (require racket/set)
 (require (only-in file/sha1 bytes->hex-string))
 (require (only-in srfi/43 vector-binary-search))
@@ -31,27 +31,37 @@
          (during/spawn (node-bucket $bucket _)
            #:name (list 'kademlia-bucket bucket)
 
-           (field [refresh-time (current-inexact-milliseconds)]
+           (define (next-refresh-time)
+             (+ (current-inexact-milliseconds)
+                (* 10 60 1000)
+                (* (random (* 5 60)) 1000)))
+
+           (field [refresh-time (next-refresh-time)]
                   [nodes (set)])
 
            (during (node-bucket bucket $id)
-             (on-start (refresh-time (current-inexact-milliseconds)))
+             (on-start (refresh-time (next-refresh-time)))
              (during (node-coordinates id $peer $timestamp)
                (on-start (nodes (set-add (nodes) (node-coordinates id peer timestamp))))
                (on-stop (nodes (set-remove (nodes) (node-coordinates id peer timestamp))))))
 
            (begin/dataflow
              (define good (sort (set->list (nodes)) #:key node-coordinates-timestamp >))
-             ;; ^ newest first
+             ;; ^ newest first; we discard the newest one if necessary
              (log-info "Bucket ~a: ~a good nodes" bucket (length good))
              (when (> (length good) K)
                (send! (discard-node (node-coordinates-id (car good))))))
 
-           (on (asserted (later-than (+ (refresh-time) (* 15 60 1000))))
+           (on (asserted (later-than (refresh-time)))
                (define target (random-id-in-bucket local-id bucket))
-               (log-info "Bucket ~a: refreshing target ~a" bucket (bytes->hex-string target))
-               (react (assert (locate-node target))
-                      (stop-when-timeout (* 15 1000)
-                        (log-info "Bucket ~a: declaring refresh over." bucket))
-                      (during (closest-nodes-to local-id $ids)
-                        (log-info "Bucket ~a: results: ~a" bucket (map bytes->hex-string ids))))))))
+               (define respondent (car (random-ref (query-all-nodes))))
+               (log-info "Bucket ~a: refreshing target ~a via ~a"
+                         bucket
+                         (bytes->hex-string target)
+                         (bytes->hex-string respondent))
+               (define results
+                 (do-krpc-transaction local-id respondent (list 'refresh target)
+                                      #"find_node" (hash #"id" local-id #"target" target)))
+               (when (hash? results)
+                 (for [(p (extract-peers (hash-ref results #"nodes" #"")))]
+                   (suggest-node! (list 'refresh-find-node bucket) (car p) (cadr p))))))))
