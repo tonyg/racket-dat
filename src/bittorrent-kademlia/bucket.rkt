@@ -52,6 +52,9 @@
              (when (> (length good) K)
                (send! (discard-node (node-coordinates-id (car good))))))
 
+           (begin/dataflow
+             (log-info "Bucket ~a: will refresh at ~a" bucket (refresh-time)))
+
            (on (asserted (later-than (refresh-time)))
                (define target (random-id-in-bucket local-id bucket))
                (define respondent (car (random-ref (query-all-nodes))))
@@ -64,4 +67,4 @@
                                       #"find_node" (hash #"id" local-id #"target" target)))
                (when (hash? results)
                  (for [(p (extract-peers (hash-ref results #"nodes" #"")))]
-                   (suggest-node! (list 'refresh-find-node bucket) (car p) (cadr p))))))))
+                   (suggest-node! (list 'refresh-find-node bucket) (car p) (cadr p) #f)))))))

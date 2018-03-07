@@ -16,20 +16,20 @@
 (assertion-struct node-coordinates (id peer timestamp))
 (assertion-struct node-bucket (bucket id))
 
-(message-struct discovered-node (id peer))
+(message-struct discovered-node (id peer known-alive?))
 (message-struct discard-node (id))
 
 (assertion-struct fresh-transaction (name number))
 
 (assertion-struct krpc-ready ())
 (message-struct krpc-packet (direction peer id type body))
-(assertion-struct krpc-transaction
-  (source-id target-id maybe-peer transaction-name method args results))
-(message-struct node-activity (node type))
+(assertion-struct krpc-transaction (source-id target transaction-name method args results))
+;; ^ target is either a bytes (length 20) or a udp-remote-address
+(message-struct node-timeout (node))
 (assertion-struct memoized (transaction))
 
 ;; Client API
-(assertion-struct locate-node (id fill-routing-table?))
+(assertion-struct locate-node (id root-nodes/peers))
 (assertion-struct closest-nodes-to (id nodes/peers final?))
 
 (define K 8)
@@ -41,7 +41,9 @@
   result)
 
 (define ((distance-to-<? reference) a b)
-  (bytes<? (bytes-xor reference a) (bytes-xor reference b)))
+  (cond [(not b) #t] ;; a bootstrap node has no known ID, and is "infinitely dispreferred"
+        [(not a) #f]
+        [else (bytes<? (bytes-xor reference a) (bytes-xor reference b))]))
 
 (define (node-id->number id)
   (bit-string-case id ([(n :: big-endian bytes 20)] n)))
@@ -94,14 +96,14 @@
 (define (K-closest nodes/peers target-id #:K [k K])
   (take-at-most k (sort nodes/peers #:key car (distance-to-<? target-id))))
 
-(define (do-krpc-transaction source-id target-id transaction-name method args #:peer [peer #f])
+(define (do-krpc-transaction source-id target transaction-name method args)
   (react/suspend (k)
     (stop-when (asserted
                 (memoized
-                 (krpc-transaction source-id target-id peer transaction-name method args $results)))
+                 (krpc-transaction source-id target transaction-name method args $results)))
       (k results))))
 
-(define (suggest-node! source id peer)
+(define (suggest-node! source id peer known-alive?)
   (match-define (udp-remote-address host port) peer)
   (match (map string->number (string-split host "."))
     [(or (list 10 _ _ _)
@@ -111,7 +113,7 @@
                (bytes->hex-string id) peer source)]
     [_
      (log-info "Suggested node ~a (~a) via ~a" (bytes->hex-string id) peer source)
-     (send! (discovered-node id peer))]))
+     (send! (discovered-node id peer known-alive?))]))
 
 (define (format-nodes/peers ns)
   (for/list [(n ns)]

@@ -52,28 +52,27 @@
        (field [active-queries (set)])
 
        (during (local-node $local-id)
-         (during/spawn (observe (krpc-transaction $src $tgt $pr $txn-name $method $args _))
+         (during/spawn (observe (krpc-transaction $src $tgt $txn-name $method $args _))
            (field [results #f])
-           (assert #:when (results) (krpc-transaction src tgt pr txn-name method args (results)))
+           (assert #:when (results) (krpc-transaction src tgt txn-name method args (results)))
+           (define debug-name (if (udp-remote-address? tgt) tgt (bytes->hex-string tgt)))
            (during (fresh-transaction txn-name $txn)
-             (if pr
-                 (on-start (send! (krpc-packet 'outbound pr txn 'request (list method args))))
+             (if (udp-remote-address? tgt)
+                 (on-start (send! (krpc-packet 'outbound tgt txn 'request (list method args))))
                  (during (node-coordinates tgt $peer _)
                    (on-start (send! (krpc-packet 'outbound peer txn 'request (list method args))))))
              (stop-when-timeout 5000
-               (log-info "KRPC request timeout contacting ~a" (bytes->hex-string tgt))
-               (send! (node-activity tgt 'timeout))
+               (log-info "KRPC request timeout contacting ~a" debug-name)
+               (when (bytes? tgt) (send! (node-timeout tgt)))
                (results 'timeout))
              (stop-when (message (krpc-packet 'inbound $peer1 txn 'response $details))
-               (log-info "KRPC reply from ~a (~a): ~v" (bytes->hex-string tgt) peer1 details)
-               (send! (node-activity tgt 'activity))
-               (suggest-node! 'received-response tgt peer1)
+               (log-info "KRPC reply from ~a (~a): ~v" debug-name peer1 details)
+               (define id (hash-ref details #"id" #f)) ;; required in all BEP 0005 responses
+               (when id (suggest-node! 'received-response id peer1 #t))
                (results details))
              (stop-when (message (krpc-packet 'inbound $peer1 txn 'error $details))
-               (log-info "KRPC error from ~a (~a): ~v" (bytes->hex-string tgt) peer1 details)
-               ;; Error replies probably... shouldn't? count as activity??
-               ;; (send! (node-activity tgt 'activity))
-               ;; (suggest-node! 'received-error tgt peer1`)
+               (log-info "KRPC error from ~a (~a): ~v" debug-name peer1 details)
+               ;; Error replies probably... shouldn't?... count as activity??
                (results 'error))))))
 
 (define (spawn-node [local-id (crypto-random-bytes 20)])
@@ -86,7 +85,11 @@
          (on-stop (log-info "Stopping node ~v" (bytes->hex-string local-id)))
 
          (on-start
-          (react (assert (locate-node local-id #t))
+          (react (assert (locate-node
+                          local-id
+                          (list (list #f (udp-remote-address "router.bittorrent.com" 6881))
+                                (list #f (udp-remote-address "router.utorrent.com" 6881))
+                                (list #f (udp-remote-address "dht.transmissionbt.com" 6881)))))
                  (stop-when (asserted (closest-nodes-to local-id _ #t))
                    (log-info "Initial discovery of nodes close to self complete."))
                  (on (asserted (closest-nodes-to local-id $ns _))
@@ -95,8 +98,7 @@
          (on (message (krpc-packet 'inbound $peer $txn 'request (list $method $details)))
              (spawn* #:name (list 'kademlia-request-handler peer txn method details)
                      (define peer-id (hash-ref details #"id")) ;; required in all BEP 0005 requests
-                     (send! (node-activity peer-id 'activity))
-                     (suggest-node! 'incoming-request peer-id peer)
+                     (suggest-node! 'incoming-request peer-id peer #t)
                      (match method
                        [#"ping"
                         (log-info "Pinged by ~a, id ~a" peer (bytes->hex-string peer-id))

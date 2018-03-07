@@ -4,6 +4,7 @@
 (require (only-in racket/random crypto-random-bytes))
 (require (only-in file/sha1 bytes->hex-string hex-string->bytes))
 (require (only-in racket/list group-by))
+(require (only-in racket/port with-output-to-string))
 (require racket/set)
 
 (require/activate syndicate/reload)
@@ -56,10 +57,16 @@
                               (reply peer "~a: done\n"
                                      (bytes->hex-string id)))
                             (on (asserted (closest-nodes-to id $ns $final?))
-                                (reply peer "~a ~a: ~a\n"
-                                       (if final? "final" "partial")
-                                       (bytes->hex-string id)
-                                       (format-nodes/peers ns))))
+                                (reply peer "~a"
+                                       (with-output-to-string
+                                        (lambda ()
+                                          (printf "~a ~a:\n"
+                                                  (if final? "final" "partial")
+                                                  (bytes->hex-string id))
+                                          (for [(n ns)]
+                                            (printf "  ~a ~a\n"
+                                                    (bytes->hex-string (car n))
+                                                    (cadr n))))))))
                      (reply peer "Bad id: ~a\n" id))]
                 [(regexp #px"^unwatch (.*)$" (list _ id-str))
                  (send! (ui-unwatch (hex-string->bytes id-str)))

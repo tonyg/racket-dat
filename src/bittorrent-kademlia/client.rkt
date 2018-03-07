@@ -12,49 +12,41 @@
 (require "wire.rkt")
 (require "protocol.rkt")
 
-(spawn #:name 'closest-nodes-monitor
+(spawn #:name 'locate-node-server
        (stop-when-reloaded)
 
        (during (local-node $local-id)
-         (during/spawn (locate-node $target-id $fill-routing-table?)
+         (during/spawn (locate-node $target-id $roots)
+           #:name (list 'locate-node (bytes->hex-string target-id))
            (stop-when-reloaded)
 
            (field [bad-nodes (set)]
-                  [possible-nodes #f]
+                  [possible-nodes (and roots (list->set roots))]
                   [asked-nodes (set)]
                   [best-nodes (list)]
                   [query-count 0]
-                  [final? #f]
-                  [reset-count 0])
+                  [state (if roots 'running 'starting)])
 
-           (assert (closest-nodes-to target-id (best-nodes) (final?)))
-
-           (stop-when-true (> (reset-count) 3)
-             (log-info "Too many retries on lookup ~a. Giving up" (bytes->hex-string target-id)))
-
-           (define (reset!)
-             (bad-nodes (set))
-             (possible-nodes #f)
-             (asked-nodes (set))
-             (best-nodes (list))
-             (reset-count (+ (reset-count) 1))
-             (react (define/query-set nodes (node-coordinates $i $p _) (list i p))
-                    (stop-when-true (not (set-empty? (nodes)))
-                                    (possible-nodes (nodes)))))
+           (assert (closest-nodes-to target-id (best-nodes) (eq? (state) 'final)))
 
            (on-start
             (log-info "New query: finding ~a" (bytes->hex-string target-id))
-            (reset!))
+            (when (not roots)
+              (react (define/query-set nodes (node-coordinates $i $p _) (list i p))
+                     (stop-when-true (not (set-empty? (nodes)))
+                       (state 'running)
+                       (possible-nodes (nodes))))))
 
            (define (ask-node node/peer)
-             (match-define (list id peer) node/peer)
+             (match-define (list maybe-id peer) node/peer)
              (asked-nodes (set-add (asked-nodes) node/peer))
              (query-count (+ (query-count) 1))
              (react (on-stop (query-count (- (query-count) 1)))
                     (stop-when (asserted
                                 (memoized
-                                 (krpc-transaction local-id id peer
-                                                   (list 'find_node id target-id)
+                                 (krpc-transaction local-id
+                                                   peer
+                                                   (list 'find_node peer target-id)
                                                    #"find_node"
                                                    (hash #"id" local-id #"target" target-id)
                                                    $results)))
@@ -64,10 +56,9 @@
                          (bad-nodes (set-add (bad-nodes) node/peer))]
                         [(? hash?)
                          (define peers (extract-peers (hash-ref results #"nodes" #"")))
-                         (when fill-routing-table?
-                           (for [(p peers)] (suggest-node! 'neighbourhood (car p) (cadr p))))
+                         (for [(p peers)] (suggest-node! 'neighbourhood (car p) (cadr p) #f))
                          (log-info "Asked ~a(~a) for ~a, got ~a"
-                                   (bytes->hex-string id)
+                                   (and maybe-id (bytes->hex-string maybe-id))
                                    peer
                                    (bytes->hex-string target-id)
                                    (format-nodes/peers peers))
@@ -76,22 +67,34 @@
                                                                   (bad-nodes))))
                          (define new-best-nodes (K-closest (set->list (possible-nodes)) target-id))
                          (if (equal? (best-nodes) new-best-nodes)
-                             (final? #t)
-                             (best-nodes new-best-nodes))]))))
+                             (state 'stabilizing)
+                             (begin (state 'running)
+                                    (best-nodes new-best-nodes)))]))))
+
+           (define (log-state askable-nodes)
+             (log-info "query ~a in-flight ~a askable ~a asked ~a state ~a"
+                       (bytes->hex-string target-id)
+                       (query-count)
+                       (if askable-nodes (set-count askable-nodes) "?")
+                       (set-count (asked-nodes))
+                       (state)))
 
            (begin/dataflow
-             (when (set? (possible-nodes))
+             (when (eq? (state) 'stabilizing)
+               (log-state #f)
+               (when (zero? (query-count))
+                 (state 'final))))
+
+           (begin/dataflow
+             (when (eq? (state) 'running)
                (define askable-nodes (set-subtract (possible-nodes) (asked-nodes)))
-               (log-info "query-count ~a askable-nodes #~a final? ~a"
-                         (query-count)
-                         (set-count askable-nodes)
-                         (final?))
+               (log-state askable-nodes)
                (define available-parallelism (- 3 (query-count)))
-               (when (and (positive? available-parallelism) (not (final?)))
-                 (if (and (zero? (query-count)) (set-empty? askable-nodes))
-                     (if (null? (best-nodes)) ;; ugh. Try again
-                         (reset!)
-                         (final? #t))
+               (when (positive? available-parallelism)
+                 (if (set-empty? askable-nodes)
+                     (begin (log-info "query for ~a didn't stabilize, but has no askable-nodes"
+                                      (bytes->hex-string target-id))
+                            (state 'final))
                      (for [(node/peer (K-closest #:K available-parallelism
                                                  (set->list askable-nodes) target-id))]
                        (ask-node node/peer)))))))))

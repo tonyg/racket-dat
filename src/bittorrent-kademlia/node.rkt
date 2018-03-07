@@ -13,18 +13,18 @@
 
 (spawn #:name 'memo-table
        (stop-when-reloaded)
-       (during (observe (memoized (krpc-transaction $src $tgt $pr $txn $method $args _)))
-         (assert (observe (memoized (krpc-transaction src tgt pr txn method args _))))
+       (during (observe (memoized (krpc-transaction $src $tgt $txn $method $args _)))
+         (assert (observe (memoized (krpc-transaction src tgt txn method args _))))
          (stop-when-timeout 30000)
          (on-start
           (react
-           (stop-when (asserted (krpc-transaction src tgt pr txn method args $result))
-             (react (assert (memoized (krpc-transaction src tgt pr txn method args result)))))))))
+           (stop-when (asserted (krpc-transaction src tgt txn method args $result))
+             (react (assert (memoized (krpc-transaction src tgt txn method args result)))))))))
 
 (spawn #:name 'node-factory
        (stop-when-reloaded)
        (define/query-set ids (known-node $id) id)
-       (on (message (discovered-node $id $peer))
+       (on (message (discovered-node $id $peer $known-alive?))
            (when (not (set-member? (ids) id))
              (ids (set-add (ids) id))
              (spawn #:name (list 'node (bytes->hex-string id))
@@ -32,9 +32,9 @@
                     (stop-when-reloaded)
                     (on-start (log-info "Tracking node ~a at ~a" (bytes->hex-string id) peer))
                     (on-stop (log-info "Terminated node ~a at ~a" (bytes->hex-string id) peer))
-                    (node-main id peer)))))
+                    (node-main id peer known-alive?)))))
 
-(define (node-main id initial-peer)
+(define (node-main id initial-peer initially-known-alive?)
   (field [time-last-heard-from (current-inexact-milliseconds)]
          [timeout-counter 0]
          [ok? #t]
@@ -45,7 +45,10 @@
   (assert (known-node id))
   (assert #:when (ok?) (node-coordinates id (peer) (time-last-heard-from)))
 
-  (on (message (discovered-node id $new-peer))
+  (on (message (discovered-node id $new-peer $known-alive?))
+      (when known-alive? ;; suggestion doubles as indication of actual node activity
+        (time-last-heard-from (current-inexact-milliseconds))
+        (timeout-counter 0))
       (when (not (equal? (peer) new-peer))
         (log-info "Node ~a changed IP/port: from ~a to ~a"
                   (bytes->hex-string id)
@@ -53,12 +56,8 @@
                   new-peer)
         (peer new-peer)))
 
-  (on (message (node-activity id 'timeout))
+  (on (message (node-timeout id))
       (timeout-counter (+ (timeout-counter) 1)))
-
-  (on (message (node-activity id 'activity))
-      (time-last-heard-from (current-inexact-milliseconds))
-      (timeout-counter 0))
 
   (begin/dataflow
     (when (>= (timeout-counter) 3)
@@ -100,19 +99,28 @@
              ['error
               (log-info "Error pinging node ~a" (bytes->hex-string id))
               (ok? #f)]
-             [_ ;; timeout or reply
-              (try-pinging (+ ping-count 1))])])))
+             ['timeout
+              (try-pinging (+ ping-count 1))]
+             [result
+              (define remote-node-id (hash-ref result #"id" #f))
+              (if (and remote-node-id (not (equal? remote-node-id id)))
+                  (begin (log-info "Ping reply had id ~a, not ~a"
+                                   (bytes->hex-string remote-node-id)
+                                   (bytes->hex-string id))
+                         (ok? #f))
+                  (try-pinging (+ ping-count 1)))])])))
 
     ;; Ping questionable node after 15 minutes of inactivity:
     (on (asserted (later-than (+ (time-last-heard-from) (* 15 60 1000))))
         (ping-until-fresh-or-bad))
 
     ;; Also, ping on startup after 30 seconds if we haven't had activity yet:
-    (on-start (define snapshot-time-last-heard-from (time-last-heard-from))
-              (sleep 30)
-              (when (equal? snapshot-time-last-heard-from (time-last-heard-from))
-                (log-info "Starting initial ping for ~a" (bytes->hex-string id))
-                (ping-until-fresh-or-bad))))
+    (when (not initially-known-alive?)
+      (on-start (define snapshot-time-last-heard-from (time-last-heard-from))
+                (sleep 30)
+                (when (equal? snapshot-time-last-heard-from (time-last-heard-from))
+                  (log-info "Starting initial ping for ~a" (bytes->hex-string id))
+                  (ping-until-fresh-or-bad)))))
 
   (begin/dataflow (log-info "Node ~a: timestamp ~a" (bytes->hex-string id) (time-last-heard-from)))
   (begin/dataflow (log-info "Timeouts ~a: ~a" (bytes->hex-string id) (timeout-counter))))
