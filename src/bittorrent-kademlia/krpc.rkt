@@ -128,6 +128,8 @@
                                               (bytes->hex-string info_hash)
                                               peer
                                               (bytes->hex-string peer-id))
+                        (define token
+                          (car (immediate-query [query-value #f (valid-tokens $ts) ts])))
                         (match (set->list
                                 (immediate-query
                                  [query-set (participant-record info_hash $h $p)
@@ -138,22 +140,45 @@
                            (define peers (K-closest (query-all-nodes) info_hash))
                            (send! (krpc-packet 'outbound peer txn 'response
                                                (hash #"id" local-id
+                                                     #"token" token
                                                      #"nodes" (format-peers peers))))]
                           [rs
                            (log-dht/server-debug "Known participants in ~a: ~v"
                                                  (bytes->hex-string info_hash) rs)
-                           (define token
-                             (car (immediate-query [query-value #f (valid-tokens $ts) ts])))
                            (define formatted-rs (filter values (map format-ip/port rs)))
                            (send! (krpc-packet 'outbound peer txn 'response
                                                (hash #"id" local-id
                                                      #"token" token
                                                      #"values" formatted-rs)))])]
 
+                       [#"announce_peer"
+                        (define info_hash (hash-ref details #"info_hash"))
+                        (define implied_port (positive? (hash-ref details #"implied_port" 0)))
+                        (define host (udp-remote-address-host peer))
+                        (define port (if implied_port
+                                         (udp-remote-address-port peer)
+                                         (hash-ref details #"port")))
+                        (define token (hash-ref details #"token"))
+                        (define tokens (immediate-query [query-value #f (valid-tokens $ts) ts]))
+                        (cond
+                          [(member token tokens)
+                           (log-dht/server-debug "Announce ~a peer ~a (req port ~a) id ~a"
+                                                 (bytes->hex-string info_hash)
+                                                 peer
+                                                 port
+                                                 (bytes->hex-string peer-id))
+                           (send! (received-announcement (participant-record info_hash host port)))
+                           (send! (krpc-packet 'outbound peer txn 'response
+                                               (hash #"id" local-id)))]
+                          [else
+                           (log-dht/server-debug "Bad token ~a (valid = ~a)" token tokens)
+                           (send! (krpc-packet 'outbound peer txn 'error
+                                               (list 203 "Bad token")))])]
+
                        [method
                         (log-dht/server-warning "Unimplemented request: ~a ~v" method details)
                         (send! (krpc-packet 'outbound peer txn 'error
-                                            (list 202 #"Not yet implemented Ler<OrId0")))])))))
+                                            (list 204 #"Method unknown")))])))))
 
 (spawn-server #"\330r\22\237z\365\247E\30LqZ\337\301F\23\341<\314G")
 

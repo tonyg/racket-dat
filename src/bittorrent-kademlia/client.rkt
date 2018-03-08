@@ -116,12 +116,6 @@
                                (lambda (best-nodes final?)
                                  (closest-nodes-to target-id best-nodes final?))))))
 
-(define (do-locate-node id [roots #f])
-  (react/suspend (k)
-    (assert (locate-node id roots))
-    (stop-when (asserted (closest-nodes-to id $nps #t))
-      (k nps))))
-
 (spawn #:name 'locate-participants-server
        (stop-when-reloaded)
 
@@ -160,3 +154,40 @@
                                                   (K-closest (record-holders) resource-id
                                                              #:key record-holder-id)
                                                   final?))))))
+
+(define (do-locate-participants resource-id)
+  (react/suspend (k)
+    (assert (locate-participants resource-id))
+    (stop-when (asserted (participants-in resource-id $rhs #t))
+      (k rhs))))
+
+(spawn #:name 'announce-participation-server
+       (stop-when-reloaded)
+
+       (during (local-node $local-id)
+         (during/spawn (announce-participation $resource-id $maybe-port)
+           #:name (list 'announce-participation (bytes->hex-string resource-id))
+           (on-start (log-dht/client-info "Added local announce ~a ~a"
+                                          (bytes->hex-string resource-id)
+                                          maybe-port))
+           (on-stop (log-dht/client-info "Removed local announce ~a ~a"
+                                         (bytes->hex-string resource-id)
+                                         maybe-port))
+
+           (field [refresh-time (current-inexact-milliseconds)])
+
+           (on (asserted (later-than (refresh-time)))
+               (refresh-time (next-refresh-time 8 10))
+               (define rhs (do-locate-participants resource-id))
+               (log-dht/client-debug "Announcing to ~v" rhs)
+               (for [(rh rhs)]
+                 (match-define (record-holder id location token _has-records?) rh)
+                 (react (on-start (do-krpc-transaction local-id
+                                                       location
+                                                       (list 'announce_peer id resource-id)
+                                                       #"announce_peer"
+                                                       (hash #"id" local-id
+                                                             #"info_hash" resource-id
+                                                             #"implied_port" (if maybe-port 0 1)
+                                                             #"port" (or maybe-port 0)
+                                                             #"token" token)))))))))

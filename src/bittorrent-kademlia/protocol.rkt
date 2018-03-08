@@ -31,6 +31,8 @@
 
 (assertion-struct valid-tokens (tokens))
 
+(assertion-struct received-announcement (participant))
+
 ;;---------------------------------------------------------------------------
 ;; Client API
 
@@ -40,6 +42,9 @@
 (assertion-struct locate-participants (resource-id))
 (assertion-struct participants-in (resource-id record-holders final?))
 (assertion-struct record-holder (id location token has-records?))
+
+(assertion-struct announce-participation (resource-id port)) ;; port may be #f
+
 (assertion-struct participant-record (resource-id host port))
 
 ;;---------------------------------------------------------------------------

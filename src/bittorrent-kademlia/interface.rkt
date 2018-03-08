@@ -105,6 +105,15 @@
                  (send! (ui-unwatch (subbytes (discovery-key (hex-string->bytes id-str)) 0 20)))
                  (reply peer "ok\n")]
 
+                [(regexp #px"^ann (.*) (.*)$" (list _ id-str port-str))
+                 (define id (hex-string->bytes id-str))
+                 (define port (string->number port-str))
+                 (react
+                  (assert (announce-participation id (if (zero? port) #f port)))
+                  (stop-when (message (ui-unwatch id)))
+                  (on-start (reply peer "~a : announcement started\n" (bytes->hex-string id)))
+                  (on-stop (reply peer "~a : announcement stopped\n" (bytes->hex-string id))))]
+
                 ["tokens"
                  (reply peer "~a\n" (map bytes->hex-string
                                          (immediate-query [query-value '() (valid-tokens $ts) ts])))]

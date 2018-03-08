@@ -6,4 +6,5 @@
 (spawn-reloader "table.rkt")
 (spawn-reloader "bucket.rkt")
 (spawn-reloader "client.rkt")
+(spawn-reloader "store.rkt")
 (spawn-reloader "interface.rkt")
