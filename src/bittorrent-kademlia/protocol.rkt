@@ -35,8 +35,9 @@
 (assertion-struct closest-nodes-to (id nodes/peers final?))
 
 (assertion-struct locate-participants (resource-id))
-(assertion-struct participants-in (resource-id record-holders records final?))
+(assertion-struct participants-in (resource-id record-holders final?))
 (assertion-struct record-holder (id location token has-records?))
+(assertion-struct participant-record (resource-id host port))
 
 ;;---------------------------------------------------------------------------
 

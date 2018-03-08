@@ -120,12 +120,15 @@
 (spawn #:name 'locate-participants-server
        (stop-when-reloaded)
 
+       (message-struct locate-participants:discovered-record (r))
+
        (during (local-node $local-id)
          (during/spawn (locate-participants $resource-id)
            #:name (list 'locate-participants (bytes->hex-string resource-id))
            (stop-when-reloaded)
-           (field [records (set)]
-                  [record-holders (list)])
+           (field [record-holders (list)])
+           (on (message (locate-participants:discovered-record $r))
+               (assert! r))
            (recursive-resolver local-id
                                resource-id
                                #f
@@ -143,10 +146,12 @@
                                    (define peers
                                      (filter values (for/list [(ip/port ips/ports)]
                                                       (extract-ip/port ip/port))))
-                                   (records (set-union (records) (list->set peers)))))
+                                   (for [(p peers)]
+                                     (match-define (udp-remote-address host port) p)
+                                     (send! (locate-participants:discovered-record
+                                             (participant-record resource-id host port))))))
                                (lambda (_best-nodes final?)
                                  (participants-in resource-id
                                                   (K-closest (record-holders) resource-id
                                                              #:key record-holder-id)
-                                                  (set->list (records))
                                                   final?))))))
