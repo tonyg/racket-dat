@@ -49,7 +49,7 @@
              (define good (sort (set->list (nodes)) #:key node-coordinates-timestamp >))
              ;; ^ newest first; we discard the newest one if necessary
              (log-info "Bucket ~a: ~a good nodes" bucket (length good))
-             (when (> (length good) K)
+             (when (> (length good) (if (= bucket 160) (* 2 K) K))
                (send! (discard-node (node-coordinates-id (car good))))))
 
            (begin/dataflow
