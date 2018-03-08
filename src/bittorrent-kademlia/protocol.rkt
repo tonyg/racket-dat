@@ -143,3 +143,7 @@
 (define (format-nodes/peers ns)
   (for/list [(n ns)]
     (format "~a(~a)" (and (car n) (bytes->hex-string (car n))) (cdr n))))
+
+(define (next-refresh-time lo-mins hi-mins)
+  (+ (current-inexact-milliseconds)
+     (* 1000 (+ (* lo-mins 60) (random (* (- hi-mins lo-mins) 60))))))

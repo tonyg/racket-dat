@@ -107,10 +107,10 @@
     (on (asserted (later-than (+ (time-last-heard-from) (* 15 60 1000))))
         (ping-until-fresh-or-bad))
 
-    ;; Also, ping on startup after 30 seconds if we haven't had activity yet:
+    ;; Also, ping on startup after ~30 seconds if we haven't had activity yet:
     (when (not initially-known-alive?)
       (on-start (define snapshot-time-last-heard-from (time-last-heard-from))
-                (sleep 30)
+                (sleep (+ 25 (random 10)))
                 (when (equal? snapshot-time-last-heard-from (time-last-heard-from))
                   (log-dht/table-debug "Starting initial ping for ~a" (bytes->hex-string id))
                   (ping-until-fresh-or-bad))))))

@@ -33,16 +33,11 @@
          (during/spawn (node-bucket $bucket _)
            #:name (list 'kademlia-bucket bucket)
 
-           (define (next-refresh-time)
-             (+ (current-inexact-milliseconds)
-                (* 10 60 1000)
-                (* (random (* 5 60)) 1000)))
-
-           (field [refresh-time (next-refresh-time)]
+           (field [refresh-time (next-refresh-time 10 15)]
                   [nodes (set)])
 
            (during (node-bucket bucket $id)
-             (on-start (refresh-time (next-refresh-time)))
+             (on-start (refresh-time (next-refresh-time 10 15)))
              (during (node-coordinates id $peer $timestamp)
                (on-start (nodes (set-add (nodes) (node-coordinates id peer timestamp))))
                (on-stop (nodes (set-remove (nodes) (node-coordinates id peer timestamp))))))
