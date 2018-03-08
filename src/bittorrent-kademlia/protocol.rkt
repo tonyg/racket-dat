@@ -128,8 +128,12 @@
      (log-info "Ignoring RFC 1918 network for ~a (~a) via ~a"
                (bytes->hex-string id) peer source)]
     [_
-     (log-info "Suggested node ~a (~a) via ~a" (bytes->hex-string id) peer source)
-     (send! (discovered-node id peer known-alive?))]))
+     (cond
+       [(= 20 (bytes-length id))
+        (log-info "Suggested node ~a (~a) via ~a" (bytes->hex-string id) peer source)
+        (send! (discovered-node id peer known-alive?))]
+       [else
+        (log-info "Ignoring suggestion of bogus node ID ~a" (bytes->hex-string id))])]))
 
 (define (format-nodes/peers ns)
   (for/list [(n ns)]
