@@ -96,9 +96,7 @@
                                 (list #f (udp-remote-address "router.utorrent.com" 6881))
                                 (list #f (udp-remote-address "dht.transmissionbt.com" 6881)))))
                  (stop-when (asserted (closest-nodes-to local-id _ #t))
-                   (log-dht/server-info "Initial discovery of nodes close to self complete."))
-                 (on (asserted (closest-nodes-to local-id $ns _))
-                     (log-dht/server-info "Closest to self: ~a" (format-nodes/peers ns)))))
+                   (log-dht/server-info "Initial discovery of nodes close to self complete."))))
 
          (on (message (krpc-packet 'inbound $peer $txn 'request (list $method $details)))
              (spawn* #:name (list 'kademlia-request-handler peer txn method details)
