@@ -1,15 +1,12 @@
 #lang syndicate
 
-(require (only-in racket/random crypto-random-bytes))
 (require (only-in file/sha1 bytes->hex-string))
 (require racket/set)
 
 (require/activate syndicate/reload)
 (require/activate syndicate/drivers/udp)
 (require/activate syndicate/drivers/timestate)
-(require syndicate/protocol/advertise)
 
-(require "wire.rkt")
 (require "protocol.rkt")
 
 (define-logger dht/client)

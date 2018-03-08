@@ -1,7 +1,6 @@
 #lang syndicate
 
 (require racket/string)
-(require (only-in racket/random crypto-random-bytes))
 (require (only-in file/sha1 bytes->hex-string hex-string->bytes))
 (require (only-in racket/list group-by))
 (require (only-in racket/port with-output-to-string))
@@ -9,10 +8,7 @@
 
 (require/activate syndicate/reload)
 (require/activate syndicate/drivers/udp)
-(require/activate syndicate/drivers/timestate)
-(require syndicate/protocol/advertise)
 
-(require "wire.rkt")
 (require "protocol.rkt")
 (require "../dat/discovery.rkt")
 

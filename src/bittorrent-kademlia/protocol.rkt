@@ -2,7 +2,6 @@
 
 (provide (all-defined-out))
 
-(require racket/match)
 (require racket/set)
 (require (only-in file/sha1 bytes->hex-string))
 (require (only-in racket/string string-split))

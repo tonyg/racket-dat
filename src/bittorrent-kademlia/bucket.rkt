@@ -1,17 +1,12 @@
 #lang syndicate
 
-(require (only-in racket/list partition))
 (require (only-in racket/random crypto-random-bytes random-ref))
 (require racket/set)
 (require (only-in file/sha1 bytes->hex-string))
-(require (only-in srfi/43 vector-binary-search))
-(require bitsyntax)
 
 (require/activate syndicate/reload)
 (require/activate syndicate/drivers/timestate)
-(require/activate syndicate/drivers/udp)
 
-(require "wire.rkt")
 (require "protocol.rkt")
 
 (define-logger dht/bucket)
