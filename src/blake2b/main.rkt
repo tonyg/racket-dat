@@ -152,8 +152,8 @@
                      0
                      digest-byte-count))
   (when (positive? key-length)
-    (bytes-copy! buf 0 key)
-    (set-blake2b-context-fill! ctx 128))
+    (blake2b-update! ctx key)
+    (blake2b-update! ctx (make-bytes (- 128 key-length) 0)))
   ctx)
 
 (define (bytes-block->words-block block offset)
@@ -161,11 +161,11 @@
     (integer-bytes->integer block #f #f i (+ i 8))))
 
 (define (words-block->bytes-block h digest-byte-count)
-  (define data (make-bytes digest-byte-count))
-  (for [(i (in-range 0 digest-byte-count 8))
+  (define data (make-bytes 64))
+  (for [(i (in-range 0 64 8))
         (j (in-range 0 (vector-length h)))]
     (integer->integer-bytes (@ h j) 8 #f #f data i))
-  data)
+  (subbytes data 0 digest-byte-count))
 
 (define (blake2b-update! ctx data)
   (match-define (blake2b-context h buf fill t _) ctx)
@@ -209,7 +209,7 @@
 (define (blake2b512 data #:key [key #""]) (blake2b-hash 64 data #:key key))
 
 (module+ test
-  (require (only-in file/sha1 hex-string->bytes))
+  (require (only-in file/sha1 hex-string->bytes bytes->hex-string))
 
   ;; From example in appendix A of RFC 7693
 
@@ -232,4 +232,18 @@
                  (string-append
                   "A8ADD4BDDDFD93E4877D2746E62817B116364A1FA7BC148D95090BC7333B3673"
                   "F82401CF7AA2E4CB1ECD90296E3F14CB5413F8ED77BE73045B13914CDCD6A918"))
-                (blake2b512 #"The quick brown fox jumps over the lazy dog")))
+                (blake2b512 #"The quick brown fox jumps over the lazy dog"))
+
+  (check-equal? (hex-string->bytes "3345524abf6bbe1809449224b5972c41790b6cf2")
+                (blake2b160 #""))
+
+  (check-equal? (hex-string->bytes
+                 "0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8")
+                (blake2b256 #""))
+
+  (check-equal? "abd696bacfad22f35e7e21976f0d6b5033a0409ee97a741ad437c3d2ce55280d"
+                (bytes->hex-string
+                 (blake2b256
+                  #"hypercore"
+                  #:key (hex-string->bytes
+                         "0961807e4d9bc4dbee2075a0fa78db499ae8a6bc2d613e17c35a7e49721d52e4")))))
