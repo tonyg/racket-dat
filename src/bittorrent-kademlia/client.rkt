@@ -35,12 +35,12 @@
     (asked-nodes (set-add (asked-nodes) node/peer))
     (query-count (+ (query-count) 1))
     (react (on-stop (query-count (- (query-count) 1)))
-           (stop-when (asserted (memoized (krpc-transaction local-id
-                                                            peer
-                                                            (list method peer target-id)
-                                                            method
-                                                            args
-                                                            $results)))
+           (stop-when (asserted (krpc-transaction local-id
+                                                  peer
+                                                  (list method peer target-id)
+                                                  method
+                                                  args
+                                                  $results))
              (match results
                [(or 'timeout 'error)
                 (possible-nodes (set-remove (possible-nodes) node/peer))

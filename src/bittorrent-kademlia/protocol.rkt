@@ -28,7 +28,6 @@
 (assertion-struct krpc-transaction (source-id target transaction-name method args results))
 ;; ^ target is either a bytes (length 20) or a udp-remote-address
 (message-struct node-timeout (node))
-(assertion-struct memoized (transaction))
 
 (assertion-struct valid-tokens (tokens))
 
@@ -122,9 +121,7 @@
 
 (define (do-krpc-transaction source-id target transaction-name method args)
   (react/suspend (k)
-    (stop-when (asserted
-                (memoized
-                 (krpc-transaction source-id target transaction-name method args $results)))
+    (stop-when (asserted (krpc-transaction source-id target transaction-name method args $results))
       (k results))))
 
 (define (suggest-node! source id peer known-alive?)

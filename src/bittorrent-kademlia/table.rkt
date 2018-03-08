@@ -13,16 +13,6 @@
 
 (define-logger dht/table)
 
-(spawn #:name 'memo-table
-       (stop-when-reloaded)
-       (during (observe (memoized (krpc-transaction $src $tgt $txn $method $args _)))
-         (assert (observe (memoized (krpc-transaction src tgt txn method args _))))
-         (stop-when-timeout 30000)
-         (on-start
-          (react
-           (stop-when (asserted (krpc-transaction src tgt txn method args $result))
-             (react (assert (memoized (krpc-transaction src tgt txn method args result)))))))))
-
 (spawn #:name 'node-factory
        (stop-when-reloaded)
        (define/query-set ids (known-node $id) id)
