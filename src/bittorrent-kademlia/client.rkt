@@ -90,7 +90,7 @@
     (when (eq? (state) 'running)
       (define askable-nodes (set-subtract (possible-nodes) (asked-nodes)))
       (log-state askable-nodes)
-      (define available-parallelism (- 4 (query-count)))
+      (define available-parallelism (- 8 (query-count)))
       (when (positive? available-parallelism)
         (if (and (set-empty? askable-nodes) (zero? (query-count)))
             (begin (log-dht/client-warning "query for ~a didn't stabilize, but has no askable-nodes"

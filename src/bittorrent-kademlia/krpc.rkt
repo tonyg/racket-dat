@@ -66,7 +66,7 @@
                  (on-start (send! (krpc-packet 'outbound tgt txn 'request (list method args))))
                  (during (node-coordinates tgt $peer _)
                    (on-start (send! (krpc-packet 'outbound peer txn 'request (list method args))))))
-             (stop-when-timeout 1000
+             (stop-when-timeout 3000
                (log-dht/krpc-debug "KRPC request timeout contacting ~a" debug-name)
                (when (bytes? tgt) (send! (node-timeout tgt)))
                (results 'timeout))
