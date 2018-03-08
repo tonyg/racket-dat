@@ -103,25 +103,71 @@
                      (define peer-id (hash-ref details #"id")) ;; required in all BEP 0005 requests
                      (suggest-node! 'incoming-request peer-id peer #t)
                      (match method
+
                        [#"ping"
                         (log-dht/server-debug "Pinged by ~a, id ~a" peer (bytes->hex-string peer-id))
                         (send! (krpc-packet 'outbound peer txn 'response (hash #"id" local-id)))]
+
                        [#"find_node"
                         (define target (hash-ref details #"target"))
                         (log-dht/server-debug "Asked for nodes near ~a by ~a, id ~a"
                                               (bytes->hex-string target)
                                               peer
                                               (bytes->hex-string peer-id))
-                        (define bucket (node-id->bucket target local-id))
                         (define peers (K-closest (query-all-nodes) target))
                         (log-dht/server-debug "Best IDs near ~a: ~a"
                                               (bytes->hex-string target)
                                               (map bytes->hex-string (map car peers)))
                         (send! (krpc-packet 'outbound peer txn 'response
-                                            (hash #"nodes" (format-peers peers))))]
+                                            (hash #"id" local-id
+                                                  #"nodes" (format-peers peers))))]
+
+                       [#"get_peers"
+                        (define info_hash (hash-ref details #"info_hash"))
+                        (log-dht/server-debug "Asked for participants in ~a by ~a, id ~a"
+                                              (bytes->hex-string info_hash)
+                                              peer
+                                              (bytes->hex-string peer-id))
+                        (match (set->list
+                                (immediate-query
+                                 [query-set (participant-record info_hash $h $p)
+                                            (udp-remote-address h p)]))
+                          ['()
+                           (log-dht/server-debug "No known participants in ~a."
+                                                 (bytes->hex-string info_hash))
+                           (define peers (K-closest (query-all-nodes) info_hash))
+                           (send! (krpc-packet 'outbound peer txn 'response
+                                               (hash #"id" local-id
+                                                     #"nodes" (format-peers peers))))]
+                          [rs
+                           (log-dht/server-debug "Known participants in ~a: ~v"
+                                                 (bytes->hex-string info_hash) rs)
+                           (define token
+                             (car (immediate-query [query-value #f (valid-tokens $ts) ts])))
+                           (define formatted-rs (filter values (map format-ip/port rs)))
+                           (send! (krpc-packet 'outbound peer txn 'response
+                                               (hash #"id" local-id
+                                                     #"token" token
+                                                     #"values" formatted-rs)))])]
+
                        [method
                         (log-dht/server-warning "Unimplemented request: ~a ~v" method details)
                         (send! (krpc-packet 'outbound peer txn 'error
                                             (list 202 #"Not yet implemented Ler<OrId0")))])))))
 
 (spawn-server #"\330r\22\237z\365\247E\30LqZ\337\301F\23\341<\314G")
+
+(spawn #:name 'dht-token-manager
+       (stop-when-reloaded)
+
+       (define (make-token) (crypto-random-bytes 8))
+       (define (next-rollover-time) (+ (current-inexact-milliseconds) (* 5 60 1000)))
+
+       (field [tokens (list (make-token))]
+              [rollover-time (next-rollover-time)])
+
+       (assert (valid-tokens (tokens)))
+
+       (on (asserted (later-than (rollover-time)))
+           (rollover-time (next-rollover-time))
+           (tokens (take-at-most 2 (cons (make-token) (tokens))))))

@@ -105,5 +105,9 @@
                  (send! (ui-unwatch (subbytes (discovery-key (hex-string->bytes id-str)) 0 20)))
                  (reply peer "ok\n")]
 
+                ["tokens"
+                 (reply peer "~a\n" (map bytes->hex-string
+                                         (immediate-query [query-value '() (valid-tokens $ts) ts])))]
+
                 [line
                  (reply peer "Unhandled: ~a\n" line)])))))

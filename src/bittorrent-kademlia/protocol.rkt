@@ -30,6 +30,8 @@
 (message-struct node-timeout (node))
 (assertion-struct memoized (transaction))
 
+(assertion-struct valid-tokens (tokens))
+
 ;;---------------------------------------------------------------------------
 ;; Client API
 
@@ -90,17 +92,21 @@
      (list (string->number a) (string->number b) (string->number c) (string->number d))]
     [_ #f]))
 
+(define (format-ip/port peer)
+  (match-define (udp-remote-address host port) peer)
+  (match (dotted-quad->numbers host)
+    [(list a b c d)
+     (bit-string->bytes (bit-string a b c d (port :: big-endian bytes 2)))]
+    [#f #f]))
+
 (define (format-peers peers)
   (bit-string->bytes
    (apply bit-string-append
           (map (match-lambda
-                 [(list id (udp-remote-address host port))
-                  (match (dotted-quad->numbers host)
-                    [(list a b c d)
-                     (bit-string (id :: binary bytes 20) a b c d (port :: big-endian bytes 2))]
-                    [#f
-                     (log-dht/protocol-warning "Cannot format hostname: ~a" host)
-                     (bit-string)])])
+                 [(list id peer)
+                  (match (format-ip/port peer)
+                    [#f (bit-string)]
+                    [loc (bit-string (id :: binary bytes 20) (loc :: binary))])])
                peers))))
 
 (define (take-at-most n xs)
