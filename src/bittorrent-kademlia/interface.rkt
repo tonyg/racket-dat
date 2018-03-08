@@ -30,7 +30,9 @@
        (during (local-node $local-id)
          (on (message (udp-packet $peer endpoint $body))
              (spawn*
+              #:name (list 'udp-interface-handler body)
               (match (string-trim (bytes->string/utf-8 body))
+
                 ["list"
                  (printf "Local ID is ~a\n" (bytes->hex-string local-id))
                  (define all-entries (set->list (immediate-query
@@ -48,28 +50,46 @@
                      (printf "  node ~a: ~a (~a)\n" (bytes->hex-string i) p t)))
                  (flush-output)
                  (reply peer "Done. Check stdout\n")]
+
                 [(regexp #px"^watch (.*)$" (list _ id-str))
                  (define id (hex-string->bytes id-str))
-                 (if (= (bytes-length id) 20)
-                     (spawn #:name (ui-watch id)
-                            (assert (locate-node id #f))
-                            (stop-when (message (ui-unwatch id))
-                              (reply peer "~a: done\n"
-                                     (bytes->hex-string id)))
-                            (on (asserted (closest-nodes-to id $ns $final?))
-                                (reply peer "~a"
-                                       (with-output-to-string
-                                        (lambda ()
-                                          (printf "~a ~a:\n"
-                                                  (if final? "final" "partial")
-                                                  (bytes->hex-string id))
-                                          (for [(n ns)]
-                                            (printf "  ~a ~a\n"
-                                                    (bytes->hex-string (car n))
-                                                    (cadr n))))))))
-                     (reply peer "Bad id: ~a\n" id))]
-                [(regexp #px"^unwatch (.*)$" (list _ id-str))
+                 (react
+                  (assert (locate-node id #f))
+                  (stop-when (message (ui-unwatch id))
+                    (reply peer "~a: done\n" (bytes->hex-string id)))
+                  (on (asserted (closest-nodes-to id $ns $final?))
+                      (define summary
+                        (with-output-to-string
+                          (lambda ()
+                            (printf "~a ~a:\n" (if final? "final" "partial") (bytes->hex-string id))
+                            (for [(n ns)]
+                              (printf "  ~a ~a\n" (bytes->hex-string (car n)) (cadr n))))))
+                      (reply peer "~a" summary)))]
+
+                [(regexp #px"^peers (.*)$" (list _ id-str))
+                 (define id (hex-string->bytes id-str))
+                 (react
+                  (assert (locate-participants id))
+                  (stop-when (message (ui-unwatch id))
+                    (reply peer "peers ~a: done\n" (bytes->hex-string id)))
+                  (on (asserted (participants-in id $npts $ps $final?))
+                      (define summary
+                        (with-output-to-string
+                          (lambda ()
+                            (printf "~a participants ~a:\nnodes:\n"
+                                    (if final? "final" "partial")
+                                    (bytes->hex-string id))
+                            (for [(npt npts)]
+                              (match-define (record-holder n p token rs?) npt)
+                              (printf "  ~a ~v ~a ~v\n" (bytes->hex-string n) rs? p token))
+                            (printf "~a UDP peers found; here are at most 5 of them:\n" (length ps))
+                            (for [(p (take-at-most 5 ps))]
+                              (printf "  ~a\n" p)))))
+                      (reply peer "~a" summary)))]
+
+                [(regexp #px"^un([^ ]*) (.*)$" (list _ _ id-str))
                  (send! (ui-unwatch (hex-string->bytes id-str)))
                  (reply peer "ok\n")]
+
                 [line
                  (reply peer "Unhandled: ~a\n" line)])))))

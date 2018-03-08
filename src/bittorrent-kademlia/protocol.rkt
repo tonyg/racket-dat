@@ -28,9 +28,17 @@
 (message-struct node-timeout (node))
 (assertion-struct memoized (transaction))
 
+;;---------------------------------------------------------------------------
 ;; Client API
+
 (assertion-struct locate-node (id root-nodes/peers))
 (assertion-struct closest-nodes-to (id nodes/peers final?))
+
+(assertion-struct locate-participants (resource-id))
+(assertion-struct participants-in (resource-id record-holders records final?))
+(assertion-struct record-holder (id location token has-records?))
+
+;;---------------------------------------------------------------------------
 
 (define K 8)
 
@@ -57,6 +65,13 @@
 
 (define (node-id->bucket id local-id)
   (integer-length (node-id->number (bytes-xor id local-id))))
+
+(define (extract-ip/port ip/port)
+  (bit-string-case ip/port
+    ([a b c d (port :: big-endian bytes 2)]
+     (udp-remote-address (format "~a.~a.~a.~a" a b c d) port))
+    (else
+     #f)))
 
 (define (extract-peers nodes)
   (bit-string-case nodes
@@ -93,8 +108,8 @@
 (define (query-all-nodes)
   (set->list (immediate-query [query-set (node-coordinates $i $p _) (list i p)])))
 
-(define (K-closest nodes/peers target-id #:K [k K])
-  (take-at-most k (sort nodes/peers #:key car (distance-to-<? target-id))))
+(define (K-closest nodes/peers target-id #:K [k K] #:key [key car])
+  (take-at-most k (sort nodes/peers #:key key (distance-to-<? target-id))))
 
 (define (do-krpc-transaction source-id target transaction-name method args)
   (react/suspend (k)
@@ -117,4 +132,4 @@
 
 (define (format-nodes/peers ns)
   (for/list [(n ns)]
-    (format "~a(~a)" (bytes->hex-string (car n)) (cdr n))))
+    (format "~a(~a)" (and (car n) (bytes->hex-string (car n))) (cdr n))))
