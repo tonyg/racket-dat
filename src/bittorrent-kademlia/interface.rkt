@@ -37,7 +37,7 @@
                 (react
                  (assert (locate-participants id))
                  (stop-when (message (ui-unwatch id))
-                   (reply peer "peers ~a: done\n" (bytes->hex-string id)))
+                   (reply peer "peers ~a : done\n" (bytes->hex-string id)))
                  (field [rs (set)])
                  (on (asserted (participant-record id $host $port))
                      (rs (set-add (rs) (list host port)))
@@ -82,7 +82,7 @@
                  (react
                   (assert (locate-node id #f))
                   (stop-when (message (ui-unwatch id))
-                    (reply peer "~a: done\n" (bytes->hex-string id)))
+                    (reply peer "~a : done\n" (bytes->hex-string id)))
                   (on (asserted (closest-nodes-to id $ns $final?))
                       (define summary
                         (with-output-to-string
