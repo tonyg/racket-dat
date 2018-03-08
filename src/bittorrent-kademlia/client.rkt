@@ -74,6 +74,7 @@
     (when (eq? (state) 'stabilizing)
       (log-state #f)
       (when (zero? (query-count))
+        (log-dht/client-info "Query ~a ~a finished." method (bytes->hex-string target-id))
         (state 'final))))
 
   (on-start
@@ -82,6 +83,8 @@
    (state 'running)
    (for [(np (possible-nodes))]
      (ask-node np)))
+  (on-stop
+   (log-dht/client-info "Query ~a ~a released." method (bytes->hex-string target-id)))
 
   (begin/dataflow
     (when (eq? (state) 'running)
@@ -90,8 +93,8 @@
       (define available-parallelism (- 4 (query-count)))
       (when (positive? available-parallelism)
         (if (and (set-empty? askable-nodes) (zero? (query-count)))
-            (begin (log-dht/client-info "query for ~a didn't stabilize, but has no askable-nodes"
-                                        (bytes->hex-string target-id))
+            (begin (log-dht/client-warning "query for ~a didn't stabilize, but has no askable-nodes"
+                                           (bytes->hex-string target-id))
                    (state 'final))
             (for [(node/peer (K-closest #:K available-parallelism
                                         (set->list askable-nodes) target-id))]
