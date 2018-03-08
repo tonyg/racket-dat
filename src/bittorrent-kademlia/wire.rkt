@@ -13,6 +13,8 @@
 (require racket/match)
 (require bencode-codec)
 
+(define-logger dht/wire)
+
 ;;---------------------------------------------------------------------------
 
 (define (encode-packet packet)
@@ -23,13 +25,13 @@
            (bytes->bencode buf))
     [(cons v '()) v]
     [(cons v _)
-     (log-warning "DHT packet from ~a contained multiple values" source)
+     (log-dht/wire-warning "DHT packet from ~a contained multiple values" source)
      v]
     ['()
-     (log-warning "DHT packet from ~a contained no values" source)
+     (log-dht/wire-warning "DHT packet from ~a contained no values" source)
      #f]
     [#f
-     (log-warning "DHT packet from ~a contained corrupt bencoding" source)
+     (log-dht/wire-warning "DHT packet from ~a contained corrupt bencoding" source)
      #f]))
 
 ;;---------------------------------------------------------------------------

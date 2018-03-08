@@ -14,6 +14,8 @@
 (require "wire.rkt")
 (require "protocol.rkt")
 
+(define-logger dht/bucket)
+
 (define (random-id-in-bucket local-id bucket)
   (define id (crypto-random-bytes 20))
   (define-values (byte-pos bit-pos) (quotient/remainder (- 160 bucket) 8))
@@ -48,20 +50,20 @@
            (begin/dataflow
              (define good (sort (set->list (nodes)) #:key node-coordinates-timestamp >))
              ;; ^ newest first; we discard the newest one if necessary
-             (log-info "Bucket ~a: ~a good nodes" bucket (length good))
+             (log-dht/bucket-debug "Bucket ~a: ~a good nodes" bucket (length good))
              (when (> (length good) (if (= bucket 160) (* 2 K) K))
                (send! (discard-node (node-coordinates-id (car good))))))
 
            (begin/dataflow
-             (log-info "Bucket ~a: will refresh at ~a" bucket (refresh-time)))
+             (log-dht/bucket-debug "Bucket ~a: will refresh at ~a" bucket (refresh-time)))
 
            (on (asserted (later-than (refresh-time)))
                (define target (random-id-in-bucket local-id bucket))
                (define respondent (car (random-ref (query-all-nodes))))
-               (log-info "Bucket ~a: refreshing target ~a via ~a"
-                         bucket
-                         (bytes->hex-string target)
-                         (bytes->hex-string respondent))
+               (log-dht/bucket-debug "Bucket ~a: refreshing target ~a via ~a"
+                                     bucket
+                                     (bytes->hex-string target)
+                                     (bytes->hex-string respondent))
                (define results
                  (do-krpc-transaction local-id respondent (list 'refresh target)
                                       #"find_node" (hash #"id" local-id #"target" target)))

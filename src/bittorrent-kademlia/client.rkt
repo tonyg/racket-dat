@@ -12,6 +12,8 @@
 (require "wire.rkt")
 (require "protocol.rkt")
 
+(define-logger dht/client)
+
 (define (recursive-resolver local-id
                             target-id
                             roots-list
@@ -47,11 +49,11 @@
                 (handle-response! maybe-id peer results)
                 (define peers (extract-peers (hash-ref results #"nodes" #"")))
                 (for [(p peers)] (suggest-node! 'neighbourhood (car p) (cadr p) #f))
-                (log-info "Asked ~a(~a) for ~a, got ~a"
-                          (and maybe-id (bytes->hex-string maybe-id))
-                          peer
-                          (bytes->hex-string target-id)
-                          (format-nodes/peers peers))
+                (log-dht/client-debug "Asked ~a(~a) for ~a, got ~a"
+                                      (and maybe-id (bytes->hex-string maybe-id))
+                                      peer
+                                      (bytes->hex-string target-id)
+                                      (format-nodes/peers peers))
                 (possible-nodes (set-union (possible-nodes)
                                            (set-subtract (list->set peers) (bad-nodes))))
                 (define new-best-nodes (K-closest (set->list (possible-nodes)) target-id))
@@ -61,12 +63,12 @@
                            (best-nodes new-best-nodes)))]))))
 
   (define (log-state askable-nodes)
-    (log-info "query ~a in-flight ~a askable ~a asked ~a state ~a"
-              (bytes->hex-string target-id)
-              (query-count)
-              (if askable-nodes (set-count askable-nodes) "?")
-              (set-count (asked-nodes))
-              (state)))
+    (log-dht/client-debug "query ~a in-flight ~a askable ~a asked ~a state ~a"
+                          (bytes->hex-string target-id)
+                          (query-count)
+                          (if askable-nodes (set-count askable-nodes) "?")
+                          (set-count (asked-nodes))
+                          (state)))
 
   (begin/dataflow
     (when (eq? (state) 'stabilizing)
@@ -75,7 +77,7 @@
         (state 'final))))
 
   (on-start
-   (log-info "New query: ~a ~a" method (bytes->hex-string target-id))
+   (log-dht/client-info "New query: ~a ~a" method (bytes->hex-string target-id))
    (possible-nodes (list->set (or roots-list (K-closest (query-all-nodes) target-id))))
    (state 'running)
    (for [(np (possible-nodes))]
@@ -88,8 +90,8 @@
       (define available-parallelism (- 4 (query-count)))
       (when (positive? available-parallelism)
         (if (and (set-empty? askable-nodes) (zero? (query-count)))
-            (begin (log-info "query for ~a didn't stabilize, but has no askable-nodes"
-                             (bytes->hex-string target-id))
+            (begin (log-dht/client-info "query for ~a didn't stabilize, but has no askable-nodes"
+                                        (bytes->hex-string target-id))
                    (state 'final))
             (for [(node/peer (K-closest #:K available-parallelism
                                         (set->list askable-nodes) target-id))]

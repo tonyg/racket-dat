@@ -13,6 +13,10 @@
 (require "wire.rkt")
 (require "protocol.rkt")
 
+(define-logger dht/transport)
+(define-logger dht/krpc)
+(define-logger dht/server)
+
 (spawn #:name 'kademlia-krpc-udp-transport
        (stop-when-reloaded)
 
@@ -22,17 +26,17 @@
        (on (message (udp-packet $peer endpoint $body))
            (define p (decode-packet body peer))
            (when p
-             (log-info "RECEIVING ~a ~v" peer p)
+             (log-dht/transport-debug "RECEIVING ~a ~v" peer p)
              (define-values (id type body) (analyze-krpc-packet p))
              (send! (krpc-packet 'inbound peer id type body))))
 
        (on (message (krpc-packet 'outbound $peer $id $type $body))
            (define p (synthesize-krpc-packet id type body))
-           ;; (log-info "SENDING ~a ~v" peer p)
+           (log-dht/transport-debug "SENDING ~a ~v" peer p)
            (send! (udp-packet endpoint peer (encode-packet p))))
 
        (during (advertise (udp-packet _ endpoint _))
-         (on-start (log-info "Socket is ready."))
+         (on-start (log-dht/transport-info "Socket is ready."))
          (assert (krpc-ready))))
 
 (spawn #:name 'kademlia-krpc-transaction-manager
@@ -57,32 +61,33 @@
            (assert #:when (results) (krpc-transaction src tgt txn-name method args (results)))
            (define debug-name (if (udp-remote-address? tgt) tgt (bytes->hex-string tgt)))
            (during (fresh-transaction txn-name $txn)
+             (on-start (log-dht/krpc-debug "KRPC request: ~a <- ~a ~v" debug-name method args))
              (if (udp-remote-address? tgt)
                  (on-start (send! (krpc-packet 'outbound tgt txn 'request (list method args))))
                  (during (node-coordinates tgt $peer _)
                    (on-start (send! (krpc-packet 'outbound peer txn 'request (list method args))))))
              (stop-when-timeout 1000
-               (log-info "KRPC request timeout contacting ~a" debug-name)
+               (log-dht/krpc-debug "KRPC request timeout contacting ~a" debug-name)
                (when (bytes? tgt) (send! (node-timeout tgt)))
                (results 'timeout))
              (stop-when (message (krpc-packet 'inbound $peer1 txn 'response $details))
-               (log-info "KRPC reply from ~a (~a): ~v" debug-name peer1 details)
+               (log-dht/krpc-debug "KRPC reply from ~a (~a): ~v" debug-name peer1 details)
                (define id (hash-ref details #"id" #f)) ;; required in all BEP 0005 responses
                (when id (suggest-node! 'received-response id peer1 #t))
                (results details))
              (stop-when (message (krpc-packet 'inbound $peer1 txn 'error $details))
-               (log-info "KRPC error from ~a (~a): ~v" debug-name peer1 details)
+               (log-dht/krpc-debug "KRPC error from ~a (~a): ~v" debug-name peer1 details)
                ;; Error replies probably... shouldn't?... count as activity??
                (results 'error))))))
 
-(define (spawn-node [local-id (crypto-random-bytes 20)])
+(define (spawn-server [local-id (crypto-random-bytes 20)])
   (spawn #:name (list 'kademlia-node local-id)
          (stop-when-reloaded)
 
          (assert (local-node local-id))
          (assert (known-node local-id))
-         (on-start (log-info "Starting node ~v" (bytes->hex-string local-id)))
-         (on-stop (log-info "Stopping node ~v" (bytes->hex-string local-id)))
+         (on-start (log-dht/server-info "Starting node ~v" (bytes->hex-string local-id)))
+         (on-stop (log-dht/server-info "Stopping node ~v" (bytes->hex-string local-id)))
 
          (on-start
           (react (assert (locate-node
@@ -91,9 +96,9 @@
                                 (list #f (udp-remote-address "router.utorrent.com" 6881))
                                 (list #f (udp-remote-address "dht.transmissionbt.com" 6881)))))
                  (stop-when (asserted (closest-nodes-to local-id _ #t))
-                   (log-info "Initial discovery of nodes close to self complete."))
+                   (log-dht/server-info "Initial discovery of nodes close to self complete."))
                  (on (asserted (closest-nodes-to local-id $ns _))
-                     (log-info "Closest to self: ~a" (format-nodes/peers ns)))))
+                     (log-dht/server-info "Closest to self: ~a" (format-nodes/peers ns)))))
 
          (on (message (krpc-packet 'inbound $peer $txn 'request (list $method $details)))
              (spawn* #:name (list 'kademlia-request-handler peer txn method details)
@@ -101,24 +106,24 @@
                      (suggest-node! 'incoming-request peer-id peer #t)
                      (match method
                        [#"ping"
-                        (log-info "Pinged by ~a, id ~a" peer (bytes->hex-string peer-id))
+                        (log-dht/server-debug "Pinged by ~a, id ~a" peer (bytes->hex-string peer-id))
                         (send! (krpc-packet 'outbound peer txn 'response (hash #"id" local-id)))]
                        [#"find_node"
                         (define target (hash-ref details #"target"))
-                        (log-info "Asked for nodes near ~a by ~a, id ~a"
-                                  (bytes->hex-string target)
-                                  peer
-                                  (bytes->hex-string peer-id))
+                        (log-dht/server-debug "Asked for nodes near ~a by ~a, id ~a"
+                                              (bytes->hex-string target)
+                                              peer
+                                              (bytes->hex-string peer-id))
                         (define bucket (node-id->bucket target local-id))
                         (define peers (K-closest (query-all-nodes) target))
-                        (log-info "Best IDs near ~a: ~a"
-                                  (bytes->hex-string target)
-                                  (map bytes->hex-string (map car peers)))
+                        (log-dht/server-debug "Best IDs near ~a: ~a"
+                                              (bytes->hex-string target)
+                                              (map bytes->hex-string (map car peers)))
                         (send! (krpc-packet 'outbound peer txn 'response
                                             (hash #"nodes" (format-peers peers))))]
                        [method
-                        (log-warning "Unimplemented request: ~a ~v" method details)
+                        (log-dht/server-warning "Unimplemented request: ~a ~v" method details)
                         (send! (krpc-packet 'outbound peer txn 'error
                                             (list 202 #"Not yet implemented Ler<OrId0")))])))))
 
-(spawn-node #"\330r\22\237z\365\247E\30LqZ\337\301F\23\341<\314G")
+(spawn-server #"\330r\22\237z\365\247E\30LqZ\337\301F\23\341<\314G")

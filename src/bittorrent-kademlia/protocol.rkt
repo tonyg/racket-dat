@@ -10,6 +10,8 @@
 (require bitsyntax)
 (require syndicate/drivers/udp)
 
+(define-logger dht/protocol)
+
 (assertion-struct local-node (id))
 
 (assertion-struct known-node (id))
@@ -97,7 +99,7 @@
                     [(list a b c d)
                      (bit-string (id :: binary bytes 20) a b c d (port :: big-endian bytes 2))]
                     [#f
-                     (log-warning "Cannot format hostname: ~a" host)
+                     (log-dht/protocol-warning "Cannot format hostname: ~a" host)
                      (bit-string)])])
                peers))))
 
@@ -125,15 +127,15 @@
     [(or (list 10 _ _ _)
          (list 172 (? (lambda (b) (and (>= b 16) (< b 32)))) _ _)
          (list 192 168 _ _))
-     (log-info "Ignoring RFC 1918 network for ~a (~a) via ~a"
-               (bytes->hex-string id) peer source)]
+     (log-dht/protocol-debug "Ignoring RFC 1918 network for ~a (~a) via ~a"
+                             (bytes->hex-string id) peer source)]
     [_
      (cond
        [(= 20 (bytes-length id))
-        (log-info "Suggested node ~a (~a) via ~a" (bytes->hex-string id) peer source)
+        (log-dht/protocol-debug "Suggested node ~a (~a) via ~a" (bytes->hex-string id) peer source)
         (send! (discovered-node id peer known-alive?))]
        [else
-        (log-info "Ignoring suggestion of bogus node ID ~a" (bytes->hex-string id))])]))
+        (log-dht/protocol-debug "Ignoring suggestion of bogus ID ~a" (bytes->hex-string id))])]))
 
 (define (format-nodes/peers ns)
   (for/list [(n ns)]
