@@ -81,9 +81,6 @@
            (log-dht/table-debug "Questionable node ~a, pinging (~a attempts made already)"
                                 (bytes->hex-string id)
                                 ping-count)
-           ;; Ignore the result, except for checking for errors: we
-           ;; really only care whether time-last-heard-from is
-           ;; advanced somehow!
            (match (do-krpc-transaction local-id id (list 'ping id (gensym))
                                        #"ping" (hash #"id" id))
              ['error
