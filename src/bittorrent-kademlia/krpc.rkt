@@ -101,7 +101,7 @@
          (on (message (krpc-packet 'inbound $peer $txn 'request (list $method $details)))
              (spawn* #:name (list 'kademlia-request-handler peer txn method details)
                      (define peer-id (hash-ref details #"id")) ;; required in all BEP 0005 requests
-                     (suggest-node! 'incoming-request peer-id peer #t)
+                     (suggest-node! 'incoming-request peer-id peer #f)
                      (match method
 
                        [#"ping"
