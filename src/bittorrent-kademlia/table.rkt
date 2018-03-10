@@ -9,6 +9,7 @@
 (require "protocol.rkt")
 
 (define-logger dht/table)
+(define-logger dht/neighbourhood)
 
 (spawn #:name 'node-factory
        (stop-when-reloaded)
@@ -108,3 +109,23 @@
                 (when (equal? snapshot-time-last-heard-from (time-last-heard-from))
                   (log-dht/table-debug "Starting initial ping for ~a" (bytes->hex-string id))
                   (ping-until-fresh-or-bad))))))
+
+(spawn #:name 'neighbourhood-maintainer
+       (stop-when-reloaded)
+
+       (field [refresh-time (+ (current-inexact-milliseconds) (* 2 60 1000))])
+
+       (during (local-node $local-id)
+         (on (asserted (later-than (refresh-time)))
+             (refresh-time (next-refresh-time 10 15))
+             (define closest-nodes/peers (K-closest (query-all-nodes) local-id))
+             (log-dht/neighbourhood-info "Refreshing local neighbourhood: ~v" closest-nodes/peers)
+             (for [(np closest-nodes/peers)]
+               (define results
+                 (do-krpc-transaction local-id (cadr np) (list 'neighbourhood (car np))
+                                      #"find_node" (hash #"id" local-id #"target" local-id)))
+               (when (hash? results)
+                 (log-dht/neighbourhood-info "Got neighbourhood reply from ~a ~a"
+                                             (bytes->hex-string (car np)) (cadr np))
+                 (for [(p (extract-peers (hash-ref results #"nodes" #"")))]
+                   (suggest-node! 'neighbourhood (car p) (cadr p) #f)))))))
