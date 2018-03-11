@@ -16,7 +16,7 @@
                     (stop-when-reloaded)
                     (assert r)
                     (field [deadline (next-refresh-time 31 32)])
-                    (on (message (received-announcement $r))
+                    (on (message (received-announcement r))
                         (log-dht/store-debug "Refreshed: ~v" r)
                         (deadline (next-refresh-time 31 32)))
                     (stop-when (asserted (later-than (deadline))))
