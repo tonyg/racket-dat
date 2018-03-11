@@ -158,8 +158,7 @@
   (bit-string-case ip/port
     ([a b c d (port :: big-endian bytes 2)]
      (udp-remote-address (format "~a.~a.~a.~a" a b c d) port))
-    (else
-     #f)))
+    (else #f)))
 
 (define (extract-peers nodes)
   (bit-string-case nodes
@@ -170,27 +169,22 @@
            (extract-peers rest)))))
 
 (define (dotted-quad->numbers host)
-  (match host
-    [(regexp #px"([0-9]+)\\.([0-9]+)\\.([0-9]+)\\.([0-9]+)" (list _ a b c d))
-     (list (string->number a) (string->number b) (string->number c) (string->number d))]
-    [_ #f]))
+  (define quad (map string->number (string-split host ".")))
+  (and (= 4 (length quad)) (andmap byte? quad) quad))
 
 (define (format-ip/port peer)
   (match-define (udp-remote-address host port) peer)
   (match (dotted-quad->numbers host)
-    [(list a b c d)
-     (bit-string->bytes (bit-string a b c d (port :: big-endian bytes 2)))]
+    [(list a b c d) (bit-string->bytes (bit-string a b c d (port :: big-endian bytes 2)))]
     [#f #f]))
 
-(define (format-peers peers)
+(define (format-peers nps)
   (bit-string->bytes
-   (apply bit-string-append
-          (map (match-lambda
-                 [(list id peer)
-                  (match (format-ip/port peer)
-                    [#f (bit-string)]
-                    [loc (bit-string (id :: binary bytes 20) (loc :: binary))])])
-               peers))))
+   (for/fold [(acc #"")] [(np nps)]
+     (match-define (list id peer) np)
+     (match (format-ip/port peer)
+       [#f acc]
+       [loc (bit-string (acc :: binary) (id :: binary bytes 20) (loc :: binary))]))))
 
 (define (take-at-most n xs)
   (cond [(zero? n) '()]
@@ -224,8 +218,7 @@
         (log-dht/protocol-debug "Ignoring suggestion of bogus ID ~a" (~id id))])]))
 
 (define (format-nodes/peers ns)
-  (for/list [(n ns)]
-    (format "~a(~a)" (and (car n) (~id (car n))) (cdr n))))
+  (for/list [(n ns)] (format "~a(~a)" (~id (car n)) (cdr n))))
 
 (define (next-refresh-time lo-mins hi-mins)
   (+ (current-inexact-milliseconds)
