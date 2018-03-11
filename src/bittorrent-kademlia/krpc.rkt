@@ -34,9 +34,8 @@
            (log-dht/transport-debug "SENDING ~a ~v" peer p)
            (send! (udp-packet endpoint peer (encode-packet p))))
 
-       (during (advertise (udp-packet _ endpoint _))
-         (on-start (log-dht/transport-info "Socket is ready."))
-         (assert (krpc-ready))))
+       (on (asserted (advertise (udp-packet _ endpoint _)))
+           (log-dht/transport-info "Socket is ready.")))
 
 (spawn #:name 'kademlia-krpc-transaction-manager
        (stop-when-reloaded) ;; TODO: this really shouldn't start from scratch at each reload!
@@ -46,8 +45,7 @@
          (counter (+ number 1))
          (define byte-count (max 2 (quotient (+ 7 (integer-length number)) 8)))
          (define id (bit-string (number :: little-endian bytes byte-count)))
-         (during (krpc-ready)
-           (assert (fresh-transaction name id)))))
+         (assert (fresh-transaction name id))))
 
 (spawn #:name 'kademlia-krpc-transaction-manager
        (stop-when-reloaded)
