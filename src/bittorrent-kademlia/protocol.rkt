@@ -11,39 +11,119 @@
 
 (define-logger dht/protocol)
 
+;; A NodeID is a Bytes of length 20, sometimes reinterpreted as a
+;; big-endian representation of an unsigned number in [0, 2^160).
+;;
+;; NodeIDs identify both nodes in the DHT and resources in the DHT;
+;; where possible, I will write ResourceID for the latter usage.
+
+;; A Peer is a (udp-remote-address IPv4String Nat), a description of a
+;; UDP endpoint in terms of its IP address and port number. The "host
+;; name" part must be in dotted-quad format, because the DHT uses
+;; numeric IP addresses consistently, while Racket likes hostnames and
+;; doesn't seem to offer a good way to work with the underlying
+;; addresses.
+
+;; A Timestamp is a Nat, a count of milliseconds since the system
+;; epoch (usually the unix epoch).
+
+;; (local-node NodeID), describes the name of the running local node.
 (assertion-struct local-node (id))
 
+;; (known-node NodeID), used to deduplicate node actors, ensuring that
+;; no more than one for a single NodeID is running at once.
 (assertion-struct known-node (id))
+
+;; (node-coordinates NodeID Peer Timestamp), describes a known and
+;; hypothesised-active UDP endpoint for a given NodeID, along with
+;; information on when we last heard from this endpoint.
 (assertion-struct node-coordinates (id peer timestamp))
+
+;; (node-bucket Nat NodeID), summary of the results of
+;; `node-id->bucket` on the `id`. The `bucket` is in [160,0]. An
+;; asserted `node-bucket` indicates a hypothesised-active node within
+;; the named bucket.
 (assertion-struct node-bucket (bucket id))
 
+;; (discovered-node NodeID Peer Boolean), event describing detection
+;; of a node and its UDP endpoint. If `known-alive?`, represents
+;; certain knowledge of its liveness, by way of the local node
+;; receiving a response from the discovered remote node; if not
+;; `known-alive?`, then we should operate on the assumption the
+;; id-peer mapping is reasonable, but check it soon by pinging the
+;; node.
 (message-struct discovered-node (id peer known-alive?))
+
+;; (discard-node NodeID), command to discard assumed-good but
+;; surplus-to-requirement node mappings in the routing table.
 (message-struct discard-node (id))
 
+;; (fresh-transaction Any Nat), an allocated transaction `number` for
+;; the (unique) `name`, valid for use so long as interest in this
+;; `fresh-transaction` is maintained.
 (assertion-struct fresh-transaction (name number))
 
-(assertion-struct krpc-ready ())
+;; (krpc-packet (U 'inbound 'outbound) Peer Nat 'request (list Bytes BencodeHash))
+;; (krpc-packet (U 'inbound 'outbound) Peer Nat 'response BencodeHash)
+;; (krpc-packet (U 'inbound 'outbound) Peer Nat 'error (list Nat Bytes))
+;;
+;; Describe portions of a KRPC interaction. The `id` is a transaction
+;; ID; use `fresh-transaction` to allocate these.
+;;
 (message-struct krpc-packet (direction peer id type body))
+
+;; (krpc-transaction NodeID (U NodeID Peer) Any Bytes BencodeHash BencodeHash)
+;; A single KRPC remote procedure call.
 (assertion-struct krpc-transaction (source-id target transaction-name method args results))
-;; ^ target is either a bytes (length 20) or a udp-remote-address
+
+;; (node-timeout NodeID), sent when a KRPC transaction sent to a
+;; NodeID (rather than a Peer) times out.
 (message-struct node-timeout (node))
 
+;; (valid-tokens (Listof Bytes)), the currently active get_peers
+;; tokens, newest-first.
 (assertion-struct valid-tokens (tokens))
 
-(assertion-struct received-announcement (participant))
+;; (received-announcement ParticipantRecord), describes a valid peer announcement.
+(message-struct received-announcement (participant))
 
 ;;---------------------------------------------------------------------------
 ;; Client API
 
+;; (locate-node NodeID (Option (Listof (List (Option NodeID) Peer)))),
+;; triggers a `find_node` iterative resolution. Results manifest as a
+;; `closest-nodes-to` assertion.
 (assertion-struct locate-node (id root-nodes/peers))
+
+;; (closest-nodes-to NodeID (Listof (List (Option NodeID) Peer)) Boolean),
+;; partial/ongoing or final results from a `locate-node` request.
 (assertion-struct closest-nodes-to (id nodes/peers final?))
 
+;; (locate-participants ResourceID), triggers a `get_peers` iterative
+;; resolution. Results manifest as `participants-in` and
+;; `participant-record` assertions.
 (assertion-struct locate-participants (resource-id))
+
+;; (participants-in ResourceID (Listof RecordHolder) Boolean),
+;; partial/ongoing or final results from a `locate-participants`
+;; request.
 (assertion-struct participants-in (resource-id record-holders final?))
+
+;; (record-holder ResourceID Peer Bytes Boolean), a single respondent
+;; to a `locate-participants` request.
 (assertion-struct record-holder (id location token has-records?))
 
-(assertion-struct announce-participation (resource-id port)) ;; port may be #f
+;; (announce-participation ResourceID (Option Nat)), causes the local
+;; node to inject a mapping from the given resource ID to the local IP
+;; address into other nodes in the DHT. The mapping will point back
+;; either to the given port (if `port` non-`#f`) or to the DHT port we
+;; are using (if `#f`).
+(assertion-struct announce-participation (resource-id port))
 
+;; (participant-record ResourceID IPv4String Nat), describes either a
+;; discovered answer to an ongoing `get_peers`/`participants-in`
+;; query, or a locally-asserted mapping resulting from some peer node
+;; sending us an `announce_peer` message.
 (assertion-struct participant-record (resource-id host port))
 
 ;;---------------------------------------------------------------------------
