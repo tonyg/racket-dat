@@ -160,7 +160,7 @@
                           [else
                            (log-dht/server-debug "Bad token ~a (valid = ~a)" token tokens)
                            (send! (krpc-packet 'outbound peer txn 'error
-                                               (list 203 "Bad token")))])]
+                                               (list 203 #"Bad token")))])]
 
                        [method
                         (log-dht/server-warning "Unimplemented request: ~a ~v" method details)
