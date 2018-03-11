@@ -1,7 +1,7 @@
 #lang syndicate
 
 (require racket/string)
-(require (only-in file/sha1 bytes->hex-string hex-string->bytes))
+(require (only-in file/sha1 hex-string->bytes))
 (require (only-in racket/list group-by))
 (require (only-in racket/port with-output-to-string))
 (require racket/set)
@@ -33,22 +33,20 @@
                 (react
                  (assert (locate-participants id))
                  (stop-when (message (ui-unwatch id))
-                   (reply peer "peers ~a : done\n" (bytes->hex-string id)))
+                   (reply peer "peers ~a : done\n" (~id id)))
                  (field [rs (set)])
                  (on (asserted (participant-record id $host $port))
                      (rs (set-add (rs) (list host port)))
-                     (reply peer "~a participant discovered: ~a:~a\n"
-                            (bytes->hex-string id) host port))
+                     (reply peer "~a participant discovered: ~a:~a\n" (~id id) host port))
                  (on (asserted (participants-in id $npts $final?))
                      (define summary
                        (with-output-to-string
                          (lambda ()
                            (printf "~a participants ~a:\nnodes:\n"
-                                   (if final? "final" "partial")
-                                   (bytes->hex-string id))
+                                   (if final? "final" "partial") (~id id))
                            (for [(npt npts)]
                              (match-define (record-holder n p token rs?) npt)
-                             (printf "  ~a ~v ~a ~v\n" (bytes->hex-string n) rs? p token))
+                             (printf "  ~a ~v ~a ~v\n" (~id n) rs? p token))
                            (when final?
                              (printf "total of ~a participants discovered\n" (set-count (rs)))))))
                      (reply peer "~a" summary))))
@@ -56,10 +54,11 @@
               (match (string-trim (bytes->string/utf-8 body))
 
                 ["list"
-                 (printf "Local ID is ~a\n" (bytes->hex-string local-id))
                  (define all-entries (set->list (immediate-query
                                                  [query-set (node-coordinates $i $p $t)
                                                             (list i p t)])))
+                 (printf "Local ID is ~a; ~a nodes in table\n"
+                         (~id local-id) (length all-entries))
                  (define grouped
                    (sort (group-by (lambda (e) (node-id->bucket (car e) local-id)) all-entries)
                          #:key (lambda (g) (node-id->bucket (car (car g)) local-id))
@@ -69,7 +68,7 @@
                    (printf "Bucket ~a:\n" bucket)
                    (for [(entry (sort group #:key car (distance-to-<? local-id)))]
                      (match-define (list i p t) entry)
-                     (printf "  node ~a: ~a (~a)\n" (bytes->hex-string i) p t)))
+                     (printf "  node ~a: ~a (~a)\n" (~id i) p t)))
                  (flush-output)
                  (reply peer "Done. Check stdout\n")]
 
@@ -78,14 +77,14 @@
                  (react
                   (assert (locate-node id #f))
                   (stop-when (message (ui-unwatch id))
-                    (reply peer "~a : done\n" (bytes->hex-string id)))
+                    (reply peer "~a : done\n" (~id id)))
                   (on (asserted (closest-nodes-to id $ns $final?))
                       (define summary
                         (with-output-to-string
                           (lambda ()
-                            (printf "~a ~a:\n" (if final? "final" "partial") (bytes->hex-string id))
+                            (printf "~a ~a:\n" (if final? "final" "partial") (~id id))
                             (for [(n ns)]
-                              (printf "  ~a ~a\n" (bytes->hex-string (car n)) (cadr n))))))
+                              (printf "  ~a ~a\n" (~id (car n)) (cadr n))))))
                       (reply peer "~a" summary)))]
 
                 [(regexp #px"^peers (.*)$" (list _ id-str))
@@ -107,12 +106,12 @@
                  (react
                   (assert (announce-participation id (if (zero? port) #f port)))
                   (stop-when (message (ui-unwatch id)))
-                  (on-start (reply peer "~a : announcement started\n" (bytes->hex-string id)))
-                  (on-stop (reply peer "~a : announcement stopped\n" (bytes->hex-string id))))]
+                  (on-start (reply peer "~a : announcement started\n" (~id id)))
+                  (on-stop (reply peer "~a : announcement stopped\n" (~id id))))]
 
                 ["tokens"
-                 (reply peer "~a\n" (map bytes->hex-string
-                                         (immediate-query [query-value '() (valid-tokens $ts) ts])))]
+                 (reply peer "~a\n"
+                        (map ~id (immediate-query [query-value '() (valid-tokens $ts) ts])))]
 
                 [line
                  (reply peer "Unhandled: ~a\n" line)])))))

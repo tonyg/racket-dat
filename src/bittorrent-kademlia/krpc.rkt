@@ -1,7 +1,6 @@
 #lang syndicate
 
 (require (only-in racket/random crypto-random-bytes))
-(require (only-in file/sha1 bytes->hex-string))
 (require racket/set)
 (require bitsyntax)
 
@@ -59,7 +58,7 @@
          (during/spawn (observe (krpc-transaction $src $tgt $txn-name $method $args _))
            (field [results #f])
            (assert #:when (results) (krpc-transaction src tgt txn-name method args (results)))
-           (define debug-name (if (udp-remote-address? tgt) tgt (bytes->hex-string tgt)))
+           (define debug-name (if (udp-remote-address? tgt) tgt (~id tgt)))
            (during (fresh-transaction txn-name $txn)
              (on-start (log-dht/krpc-debug "KRPC request: ~a <- ~a ~v" debug-name method args))
              (if (udp-remote-address? tgt)
@@ -86,8 +85,8 @@
 
          (assert (local-node local-id))
          (assert (known-node local-id))
-         (on-start (log-dht/server-info "Starting node ~v" (bytes->hex-string local-id)))
-         (on-stop (log-dht/server-info "Stopping node ~v" (bytes->hex-string local-id)))
+         (on-start (log-dht/server-info "Starting node ~v" (~id local-id)))
+         (on-stop (log-dht/server-info "Stopping node ~v" (~id local-id)))
 
          (on-start
           (react (assert (locate-node
@@ -105,19 +104,16 @@
                      (match method
 
                        [#"ping"
-                        (log-dht/server-debug "Pinged by ~a, id ~a" peer (bytes->hex-string peer-id))
+                        (log-dht/server-debug "Pinged by ~a, id ~a" peer (~id peer-id))
                         (send! (krpc-packet 'outbound peer txn 'response (hash #"id" local-id)))]
 
                        [#"find_node"
                         (define target (hash-ref details #"target"))
                         (log-dht/server-debug "Asked for nodes near ~a by ~a, id ~a"
-                                              (bytes->hex-string target)
-                                              peer
-                                              (bytes->hex-string peer-id))
+                                              (~id target) peer (~id peer-id))
                         (define peers (K-closest (query-all-nodes) target))
                         (log-dht/server-debug "Best IDs near ~a: ~a"
-                                              (bytes->hex-string target)
-                                              (map bytes->hex-string (map car peers)))
+                                              (~id target) (map ~id (map car peers)))
                         (send! (krpc-packet 'outbound peer txn 'response
                                             (hash #"id" local-id
                                                   #"nodes" (format-peers peers))))]
@@ -125,9 +121,7 @@
                        [#"get_peers"
                         (define info_hash (hash-ref details #"info_hash"))
                         (log-dht/server-debug "Asked for participants in ~a by ~a, id ~a"
-                                              (bytes->hex-string info_hash)
-                                              peer
-                                              (bytes->hex-string peer-id))
+                                              (~id info_hash) peer (~id peer-id))
                         (define token
                           (car (immediate-query [query-value #f (valid-tokens $ts) ts])))
                         (match (set->list
@@ -135,16 +129,14 @@
                                  [query-set (participant-record info_hash $h $p)
                                             (udp-remote-address h p)]))
                           ['()
-                           (log-dht/server-debug "No known participants in ~a."
-                                                 (bytes->hex-string info_hash))
+                           (log-dht/server-debug "No known participants in ~a." (~id info_hash))
                            (define peers (K-closest (query-all-nodes) info_hash))
                            (send! (krpc-packet 'outbound peer txn 'response
                                                (hash #"id" local-id
                                                      #"token" token
                                                      #"nodes" (format-peers peers))))]
                           [rs
-                           (log-dht/server-debug "Known participants in ~a: ~v"
-                                                 (bytes->hex-string info_hash) rs)
+                           (log-dht/server-debug "Known participants in ~a: ~v" (~id info_hash) rs)
                            (define formatted-rs (filter values (map format-ip/port rs)))
                            (send! (krpc-packet 'outbound peer txn 'response
                                                (hash #"id" local-id
@@ -163,10 +155,7 @@
                         (cond
                           [(member token tokens)
                            (log-dht/server-debug "Announce ~a peer ~a (req port ~a) id ~a"
-                                                 (bytes->hex-string info_hash)
-                                                 peer
-                                                 port
-                                                 (bytes->hex-string peer-id))
+                                                 (~id info_hash) peer port (~id peer-id))
                            (send! (received-announcement (participant-record info_hash host port)))
                            (send! (krpc-packet 'outbound peer txn 'response
                                                (hash #"id" local-id)))]

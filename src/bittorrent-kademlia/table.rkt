@@ -1,7 +1,6 @@
 #lang syndicate
 
 (require racket/set)
-(require (only-in file/sha1 bytes->hex-string))
 
 (require/activate syndicate/reload)
 (require/activate syndicate/drivers/timestate)
@@ -17,11 +16,11 @@
        (on (message (discovered-node $id $peer $known-alive?))
            (when (not (set-member? (ids) id))
              (ids (set-add (ids) id))
-             (spawn #:name (list 'node (bytes->hex-string id))
+             (spawn #:name (list 'node (~id id))
                     #:assertions (known-node id)
                     (stop-when-reloaded)
-                    (on-start (log-dht/table-debug "Tracking node ~a at ~a" (bytes->hex-string id) peer))
-                    (on-stop (log-dht/table-debug "Terminated node ~a at ~a" (bytes->hex-string id) peer))
+                    (on-start (log-dht/table-debug "Tracking node ~a at ~a" (~id id) peer))
+                    (on-stop (log-dht/table-debug "Terminated node ~a at ~a" (~id id) peer))
                     (node-main id peer known-alive?)))))
 
 (define (node-main id initial-peer initially-known-alive?)
@@ -40,10 +39,7 @@
         (time-last-heard-from (current-inexact-milliseconds))
         (timeout-counter 0))
       (when (not (equal? (peer) new-peer))
-        (log-dht/table-debug "Node ~a changed IP/port: from ~a to ~a"
-                             (bytes->hex-string id)
-                             (peer)
-                             new-peer)
+        (log-dht/table-debug "Node ~a changed IP/port: from ~a to ~a" (~id id) (peer) new-peer)
         (peer new-peer)))
 
   (on (message (node-timeout id))
@@ -51,18 +47,18 @@
 
   (begin/dataflow
     (when (>= (timeout-counter) 3)
-      (log-dht/table-debug "Too many timeouts for node ~a" (bytes->hex-string id))
+      (log-dht/table-debug "Too many timeouts for node ~a" (~id id))
       (ok? #f)))
 
   (begin/dataflow
     (when (not (ok?))
-      (log-dht/table-debug "Node ~a no longer ok" (bytes->hex-string id))
+      (log-dht/table-debug "Node ~a no longer ok" (~id id))
       (react (stop-when-timeout (* 60 1000) (stop-facet node-root-facet))
              (stop-when-true (ok?)
-               (log-dht/table-debug "Node ~a is ok again" (bytes->hex-string id))))))
+               (log-dht/table-debug "Node ~a is ok again" (~id id))))))
 
   (on (message (discard-node id))
-      (log-dht/table-debug "Discarding node ~a" (bytes->hex-string id))
+      (log-dht/table-debug "Discarding node ~a" (~id id))
       (ok? #f))
 
   (during (local-node $local-id)
@@ -70,22 +66,20 @@
 
     (define (ping-until-fresh-or-bad)
       (define snapshot-time-last-heard-from (time-last-heard-from))
-      (log-dht/table-debug "Node ~a became questionable" (bytes->hex-string id))
+      (log-dht/table-debug "Node ~a became questionable" (~id id))
       (let try-pinging ((ping-count 0))
         (cond
           [(> (time-last-heard-from) snapshot-time-last-heard-from)
-           (log-dht/table-debug "Activity from node ~a, no longer questionable" (bytes->hex-string id))]
+           (log-dht/table-debug "Activity from node ~a, no longer questionable" (~id id))]
           [(not (ok?))
-           (log-dht/table-debug "Stopped pinging ~a; questionable node now deemed not OK"
-                                (bytes->hex-string id))]
+           (log-dht/table-debug "Stopped pinging ~a; questionable node now deemed not OK" (~id id))]
           [else
            (log-dht/table-debug "Questionable node ~a, pinging (~a attempts made already)"
-                                (bytes->hex-string id)
-                                ping-count)
+                                (~id id) ping-count)
            (match (do-krpc-transaction local-id id (list 'ping id (gensym))
                                        #"ping" (hash #"id" id))
              ['error
-              (log-dht/table-debug "Error pinging node ~a" (bytes->hex-string id))
+              (log-dht/table-debug "Error pinging node ~a" (~id id))
               (ok? #f)]
              ['timeout
               (try-pinging (+ ping-count 1))]
@@ -93,8 +87,7 @@
               (define remote-node-id (hash-ref result #"id" #f))
               (if (and remote-node-id (not (equal? remote-node-id id)))
                   (begin (log-dht/table-debug "Ping reply had id ~a, not ~a"
-                                              (bytes->hex-string remote-node-id)
-                                              (bytes->hex-string id))
+                                              (~id remote-node-id) (~id id))
                          (ok? #f))
                   (try-pinging (+ ping-count 1)))])])))
 
@@ -107,7 +100,7 @@
       (on-start (define snapshot-time-last-heard-from (time-last-heard-from))
                 (sleep (+ 25 (random 10)))
                 (when (equal? snapshot-time-last-heard-from (time-last-heard-from))
-                  (log-dht/table-debug "Starting initial ping for ~a" (bytes->hex-string id))
+                  (log-dht/table-debug "Starting initial ping for ~a" (~id id))
                   (ping-until-fresh-or-bad))))))
 
 (spawn #:name 'neighbourhood-maintainer
@@ -119,13 +112,6 @@
          (on (asserted (later-than (refresh-time)))
              (refresh-time (next-refresh-time 10 15))
              (define closest-nodes/peers (K-closest (query-all-nodes) local-id))
-             (log-dht/neighbourhood-info "Refreshing local neighbourhood: ~v" closest-nodes/peers)
+             (log-dht/neighbourhood-info "Refreshing local neighbourhood")
              (for [(np closest-nodes/peers)]
-               (define results
-                 (do-krpc-transaction local-id (cadr np) (list 'neighbourhood (car np))
-                                      #"find_node" (hash #"id" local-id #"target" local-id)))
-               (when (hash? results)
-                 (log-dht/neighbourhood-info "Got neighbourhood reply from ~a ~a"
-                                             (bytes->hex-string (car np)) (cadr np))
-                 (for [(p (extract-peers (hash-ref results #"nodes" #"")))]
-                   (suggest-node! 'neighbourhood (car p) (cadr p) #f)))))))
+               (find-node/suggest (list 'neighbourhood (car np)) local-id (cadr np) local-id)))))

@@ -1,6 +1,5 @@
 #lang syndicate
 
-(require (only-in file/sha1 bytes->hex-string))
 (require racket/set)
 
 (require/activate syndicate/reload)
@@ -47,10 +46,7 @@
                 (define peers (extract-peers (hash-ref results #"nodes" #"")))
                 (for [(p peers)] (suggest-node! 'neighbourhood (car p) (cadr p) #f))
                 (log-dht/client-debug "Asked ~a(~a) for ~a, got ~a"
-                                      (and maybe-id (bytes->hex-string maybe-id))
-                                      peer
-                                      (bytes->hex-string target-id)
-                                      (format-nodes/peers peers))
+                                      (~id maybe-id) peer (~id target-id) (format-nodes/peers peers))
                 (possible-nodes (set-union (possible-nodes)
                                            (set-subtract (list->set peers) (bad-nodes))))
                 (define new-best-nodes (K-closest (set->list (possible-nodes)) target-id))
@@ -61,7 +57,7 @@
 
   (define (log-state askable-nodes)
     (log-dht/client-debug "query ~a in-flight ~a askable ~a asked ~a state ~a"
-                          (bytes->hex-string target-id)
+                          (~id target-id)
                           (query-count)
                           (if askable-nodes (set-count askable-nodes) "?")
                           (set-count (asked-nodes))
@@ -71,17 +67,17 @@
     (when (eq? (state) 'stabilizing)
       (log-state #f)
       (when (zero? (query-count))
-        (log-dht/client-info "Query ~a ~a finished." method (bytes->hex-string target-id))
+        (log-dht/client-info "Query ~a ~a finished." method (~id target-id))
         (state 'final))))
 
   (on-start
-   (log-dht/client-info "New query: ~a ~a" method (bytes->hex-string target-id))
+   (log-dht/client-info "New query: ~a ~a" method (~id target-id))
    (possible-nodes (list->set (or roots-list (K-closest (query-all-nodes) target-id))))
    (state 'running)
    (for [(np (possible-nodes))]
      (ask-node np)))
   (on-stop
-   (log-dht/client-info "Query ~a ~a released." method (bytes->hex-string target-id)))
+   (log-dht/client-info "Query ~a ~a released." method (~id target-id)))
 
   (begin/dataflow
     (when (eq? (state) 'running)
@@ -91,7 +87,7 @@
       (when (positive? available-parallelism)
         (if (and (set-empty? askable-nodes) (zero? (query-count)))
             (begin (log-dht/client-warning "query for ~a didn't stabilize, but has no askable-nodes"
-                                           (bytes->hex-string target-id))
+                                           (~id target-id))
                    (state 'final))
             (for [(node/peer (K-closest #:K available-parallelism
                                         (set->list askable-nodes) target-id))]
@@ -102,7 +98,7 @@
 
        (during (local-node $local-id)
          (during/spawn (locate-node $target-id $roots-list)
-           #:name (list 'locate-node (bytes->hex-string target-id))
+           #:name (list 'locate-node (~id target-id))
            (stop-when-reloaded)
            (recursive-resolver local-id
                                target-id
@@ -120,7 +116,7 @@
 
        (during (local-node $local-id)
          (during/spawn (locate-participants $resource-id)
-           #:name (list 'locate-participants (bytes->hex-string resource-id))
+           #:name (list 'locate-participants (~id resource-id))
            (stop-when-reloaded)
            (field [record-holders (list)])
            (on (message (locate-participants:discovered-record $r))
@@ -163,13 +159,9 @@
 
        (during (local-node $local-id)
          (during/spawn (announce-participation $resource-id $maybe-port)
-           #:name (list 'announce-participation (bytes->hex-string resource-id))
-           (on-start (log-dht/client-info "Added local announce ~a ~a"
-                                          (bytes->hex-string resource-id)
-                                          maybe-port))
-           (on-stop (log-dht/client-info "Removed local announce ~a ~a"
-                                         (bytes->hex-string resource-id)
-                                         maybe-port))
+           #:name (list 'announce-participation (~id resource-id))
+           (on-start (log-dht/client-info "Added announce ~a ~a" (~id resource-id) maybe-port))
+           (on-stop (log-dht/client-info "Removed announce ~a ~a" (~id resource-id) maybe-port))
 
            (field [refresh-time (current-inexact-milliseconds)])
 

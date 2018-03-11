@@ -2,7 +2,6 @@
 
 (require (only-in racket/random crypto-random-bytes random-ref))
 (require racket/set)
-(require (only-in file/sha1 bytes->hex-string))
 
 (require/activate syndicate/reload)
 (require/activate syndicate/drivers/timestate)
@@ -51,12 +50,5 @@
                (define target (random-id-in-bucket local-id bucket))
                (define respondent (car (random-ref (query-all-nodes))))
                (log-dht/bucket-debug "Bucket ~a: refreshing target ~a via ~a"
-                                     bucket
-                                     (bytes->hex-string target)
-                                     (bytes->hex-string respondent))
-               (define results
-                 (do-krpc-transaction local-id respondent (list 'refresh target)
-                                      #"find_node" (hash #"id" local-id #"target" target)))
-               (when (hash? results)
-                 (for [(p (extract-peers (hash-ref results #"nodes" #"")))]
-                   (suggest-node! (list 'refresh-find-node bucket) (car p) (cadr p) #f)))))))
+                                     bucket (~id target) (~id respondent))
+               (find-node/suggest (list 'refresh bucket target) local-id respondent target)))))

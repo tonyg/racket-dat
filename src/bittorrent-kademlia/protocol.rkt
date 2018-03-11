@@ -134,20 +134,31 @@
     [(or (list 10 _ _ _)
          (list 172 (? (lambda (b) (and (>= b 16) (< b 32)))) _ _)
          (list 192 168 _ _))
-     (log-dht/protocol-debug "Ignoring RFC 1918 network for ~a (~a) via ~a"
-                             (bytes->hex-string id) peer source)]
+     (log-dht/protocol-debug "Ignoring RFC 1918 network for ~a (~a) via ~a" (~id id) peer source)]
     [_
      (cond
        [(= 20 (bytes-length id))
-        (log-dht/protocol-debug "Suggested node ~a (~a) via ~a" (bytes->hex-string id) peer source)
+        (log-dht/protocol-debug "Suggested node ~a (~a) via ~a" (~id id) peer source)
         (send! (discovered-node id peer known-alive?))]
        [else
-        (log-dht/protocol-debug "Ignoring suggestion of bogus ID ~a" (bytes->hex-string id))])]))
+        (log-dht/protocol-debug "Ignoring suggestion of bogus ID ~a" (~id id))])]))
 
 (define (format-nodes/peers ns)
   (for/list [(n ns)]
-    (format "~a(~a)" (and (car n) (bytes->hex-string (car n))) (cdr n))))
+    (format "~a(~a)" (and (car n) (~id (car n))) (cdr n))))
 
 (define (next-refresh-time lo-mins hi-mins)
   (+ (current-inexact-milliseconds)
      (* 1000 (+ (* lo-mins 60) (random (* (- hi-mins lo-mins) 60))))))
+
+(define (find-node/suggest txn-name&source local-id respondent target)
+  (define results
+    (do-krpc-transaction local-id respondent txn-name&source
+                         #"find_node" (hash #"id" local-id #"target" target)))
+  (when (hash? results)
+    (for [(p (extract-peers (hash-ref results #"nodes" #"")))]
+      (suggest-node! txn-name&source (car p) (cadr p) #f)))
+  results)
+
+(define (~id node-id)
+  (and (bytes? node-id) (bytes->hex-string node-id)))
