@@ -27,8 +27,6 @@
 (spawn #:name 'kademlia-krpc-transaction-manager
        (stop-when-reloaded)
 
-       (field [active-queries (set)])
-
        (during (local-node $local-id)
          (during/spawn (observe (krpc-transaction $src $tgt $txn-name $method $args _))
            (field [results #f])
