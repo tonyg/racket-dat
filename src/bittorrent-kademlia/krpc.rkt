@@ -104,78 +104,62 @@
              (spawn* #:name (list 'kademlia-request-handler peer txn method details)
                      (define peer-id (hash-ref details #"id")) ;; required in all BEP 0005 requests
                      (suggest-node! 'incoming-request peer-id peer #f)
-                     (match method
+                     (log-dht/server-debug "Req: method ~v, peer ~a ~a, details ~v"
+                                           method (~id peer-id) peer details)
+                     (handle-rpc local-id peer-id peer method details
+                                 (lambda (results)
+                                   (send! (krpc-packet 'outbound peer txn 'response results)))
+                                 (lambda (code error-message)
+                                   (send! (krpc-packet 'outbound peer txn 'error
+                                                       (list code error-message)))))))))
 
-                       [#"ping"
-                        (log-dht/server-debug "Pinged by ~a, id ~a" peer (~id peer-id))
-                        (send! (krpc-packet 'outbound peer txn 'response (hash #"id" local-id)))]
+(define (handle-rpc local-id peer-id peer method details k-reply k-error)
+  (match method
+    [#"ping" (k-reply (hash #"id" local-id))]
 
-                       [#"find_node"
-                        (define target (hash-ref details #"target"))
-                        (log-dht/server-debug "Asked for nodes near ~a by ~a, id ~a"
-                                              (~id target) peer (~id peer-id))
-                        (define peers (K-closest (query-all-nodes) target))
-                        (log-dht/server-debug "Best IDs near ~a: ~a"
-                                              (~id target) (map ~id (map car peers)))
-                        (send! (krpc-packet 'outbound peer txn 'response
-                                            (hash #"id" local-id
-                                                  #"nodes" (format-peers peers))))]
+    [#"find_node"
+     (define target (hash-ref details #"target"))
+     (define peers (K-closest (query-all-nodes) target))
+     (log-dht/server-debug "Best IDs near ~a: ~a" (~id target) (map ~id (map car peers)))
+     (k-reply (hash #"id" local-id #"nodes" (format-peers peers)))]
 
-                       [#"get_peers"
-                        (define info_hash (hash-ref details #"info_hash"))
-                        (log-dht/server-debug "Asked for participants in ~a by ~a, id ~a"
-                                              (~id info_hash) peer (~id peer-id))
-                        (define token
-                          (car (immediate-query [query-value #f (valid-tokens $ts) ts])))
-                        (match (set->list
-                                (immediate-query
-                                 [query-set (participant-record info_hash $h $p)
-                                            (udp-remote-address h p)]))
-                          ['()
-                           (log-dht/server-debug "No known participants in ~a." (~id info_hash))
-                           (define peers (K-closest (query-all-nodes) info_hash))
-                           (send! (krpc-packet 'outbound peer txn 'response
-                                               (hash #"id" local-id
-                                                     #"token" token
-                                                     #"nodes" (format-peers peers))))]
-                          [rs
-                           (log-dht/server-debug "Known participants in ~a: ~v" (~id info_hash) rs)
-                           (define formatted-rs (filter values (map format-ip/port rs)))
-                           (send! (krpc-packet 'outbound peer txn 'response
-                                               (hash #"id" local-id
-                                                     #"token" token
-                                                     #"values" formatted-rs)))])]
+    [#"get_peers"
+     (define info_hash (hash-ref details #"info_hash"))
+     (define token (car (immediate-query [query-value #f (valid-tokens $ts) ts])))
+     (match (set->list (immediate-query [query-set (participant-record info_hash $h $p)
+                                                   (udp-remote-address h p)]))
+       ['()
+        (log-dht/server-debug "No known participants in ~a." (~id info_hash))
+        (define peers (K-closest (query-all-nodes) info_hash))
+        (k-reply (hash #"id" local-id #"token" token #"nodes" (format-peers peers)))]
+       [rs
+        (log-dht/server-debug "Known participants in ~a: ~v" (~id info_hash) rs)
+        (define formatted-rs (filter values (map format-ip/port rs)))
+        (k-reply (hash #"id" local-id #"token" token #"values" formatted-rs))])]
 
-                       [#"announce_peer"
-                        (define info_hash (hash-ref details #"info_hash"))
-                        (define implied_port (positive? (hash-ref details #"implied_port" 0)))
-                        (define host (udp-remote-address-host peer))
-                        (define port (if implied_port
-                                         (udp-remote-address-port peer)
-                                         (hash-ref details #"port")))
-                        (define token (hash-ref details #"token"))
-                        (define tokens (immediate-query [query-value #f (valid-tokens $ts) ts]))
-                        (cond
-                          [(private-ip-address? host)
-                           (log-dht/server-debug "Ignoring peer on RFC 1918 network: ~a ~a ~a"
-                                                 (~id info_hash) peer port)
-                           (send! (krpc-packet 'outbound peer txn 'error
-                                               (list 203 #"Bad IP address (RFC 1918 network)")))]
-                          [(member token tokens)
-                           (log-dht/server-debug "Announce ~a peer ~a (req port ~a) id ~a"
-                                                 (~id info_hash) peer port (~id peer-id))
-                           (send! (received-announcement (participant-record info_hash host port)))
-                           (send! (krpc-packet 'outbound peer txn 'response
-                                               (hash #"id" local-id)))]
-                          [else
-                           (log-dht/server-debug "Bad token ~v (valid = ~v)" token tokens)
-                           (send! (krpc-packet 'outbound peer txn 'error
-                                               (list 203 #"Bad token")))])]
+    [#"announce_peer"
+     (define info_hash (hash-ref details #"info_hash"))
+     (define implied_port (positive? (hash-ref details #"implied_port" 0)))
+     (define host (udp-remote-address-host peer))
+     (define port (if implied_port (udp-remote-address-port peer) (hash-ref details #"port")))
+     (define token (hash-ref details #"token"))
+     (define tokens (immediate-query [query-value #f (valid-tokens $ts) ts]))
+     (cond
+       [(private-ip-address? host)
+        (log-dht/server-debug "Ignoring RFC 1918 peer: ~a ~a ~a" (~id info_hash) peer port)
+        (k-error 203 #"Bad IP address (RFC 1918 network)")]
+       [(member token tokens)
+        (log-dht/server-debug "Announce ~a peer ~a (req port ~a) id ~a"
+                              (~id info_hash) peer port (~id peer-id))
+        (send! (received-announcement (participant-record info_hash host port)))
+        (k-reply (hash #"id" local-id))]
+       [else
+        (log-dht/server-debug "Bad token ~v (valid = ~v)" token tokens)
+        (k-error 203 #"Bad token")])]
 
-                       [method
-                        (log-dht/server-warning "Unimplemented request: ~a ~v" method details)
-                        (send! (krpc-packet 'outbound peer txn 'error
-                                            (list 204 #"Method unknown")))])))))
+    [method
+     (log-dht/server-warning "Unimplemented request: ~a ~v" method details)
+     (k-error 204 #"Method unknown")]))
 
 (spawn-server #"\330r\22\237z\365\247E\30LqZ\337\301F\23\341<\314G")
 
