@@ -27,7 +27,7 @@
        (during (local-node $local-id)
          (on (message (udp-packet $peer endpoint $body))
              (spawn* #:name (list 'udp-interface-handler body)
-                     (handle-command (reply peer) local-id peer body)))))
+                     (handle-command (reply peer) local-id body)))))
 
 (define (track-peers reply id)
   (react (assert (locate-participants id))
@@ -50,7 +50,7 @@
                      (printf "total of ~a participants discovered\n" (set-count (rs)))))))
              (reply "~a" summary))))
 
-(define (handle-command reply local-id peer body)
+(define (handle-command reply local-id body)
   (match (string-trim (bytes->string/utf-8 body))
 
     ["list"
