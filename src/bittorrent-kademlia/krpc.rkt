@@ -8,39 +8,11 @@
 (require/activate syndicate/reload)
 (require/activate syndicate/drivers/udp)
 (require/activate syndicate/drivers/timestate)
-(require/activate syndicate/drivers/nat-traversal)
-(require syndicate/protocol/advertise)
 
-(require "wire.rkt")
 (require "protocol.rkt")
 
-(define-logger dht/transport)
 (define-logger dht/krpc)
 (define-logger dht/server)
-
-(spawn #:name 'kademlia-krpc-udp-transport
-       (stop-when-reloaded)
-
-       (define PORT 42769)
-       (define endpoint (udp-listener PORT))
-
-       (during (nat-mapping 'udp #f PORT $assignment)
-         (log-dht/transport-info "NAT port mapping: ~v" assignment))
-
-       (on (message (udp-packet $peer endpoint $body))
-           (define p (decode-packet body peer))
-           (when p
-             (log-dht/transport-debug "RECEIVING ~a ~v" peer p)
-             (define-values (id type body) (analyze-krpc-packet p))
-             (send! (krpc-packet 'inbound peer id type body))))
-
-       (on (message (krpc-packet 'outbound $peer $id $type $body))
-           (define p (synthesize-krpc-packet id type body))
-           (log-dht/transport-debug "SENDING ~a ~v" peer p)
-           (send! (udp-packet endpoint peer (encode-packet p))))
-
-       (on (asserted (advertise (udp-packet _ endpoint _)))
-           (log-dht/transport-info "Socket is ready.")))
 
 (spawn #:name 'kademlia-krpc-transaction-manager
        (stop-when-reloaded) ;; TODO: this really shouldn't start from scratch at each reload!

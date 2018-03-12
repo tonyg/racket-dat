@@ -2,6 +2,7 @@
 
 (require/activate syndicate/reload)
 
+(spawn-reloader "wire.rkt")
 (spawn-reloader "krpc.rkt")
 (spawn-reloader "table.rkt")
 (spawn-reloader "bucket.rkt")
