@@ -163,7 +163,7 @@
                            (send! (krpc-packet 'outbound peer txn 'response
                                                (hash #"id" local-id)))]
                           [else
-                           (log-dht/server-debug "Bad token ~a (valid = ~a)" token tokens)
+                           (log-dht/server-debug "Bad token ~v (valid = ~v)" token tokens)
                            (send! (krpc-packet 'outbound peer txn 'error
                                                (list 203 #"Bad token")))])]
 
