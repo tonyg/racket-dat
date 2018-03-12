@@ -36,14 +36,13 @@
          (log-dht/transport-info "NAT port mapping: ~v" assignment))
 
        (on (message (udp-packet $peer endpoint $body))
-           (define p (match (with-handlers [(exn? (lambda (e) #f))] (bytes->bencode body))
-                       [(cons v '()) v]
-                       [_ #f]))
-           (cond [p (log-dht/transport-debug "RECEIVING ~a ~v" peer p)
-                    (define-values (id type body) (analyze-krpc-packet p))
-                    (send! (krpc-packet 'inbound peer id type body))]
-                 [else (log-dht/transport-warning "Packet from ~a corrupt or invalid" peer)
-                       (log-dht/transport-info "Packet from ~a corrupt or invalid: ~v" peer body)]))
+           (match (with-handlers [(exn? (lambda (e) #f))] (bytes->bencode body))
+             [(cons p '())
+              (log-dht/transport-debug "RECEIVING ~a ~v" peer p)
+              (define-values (id type body) (analyze-krpc-packet p))
+              (send! (krpc-packet 'inbound peer id type body))]
+             [_ (log-dht/transport-warning "Packet from ~a corrupt or invalid" peer)
+                (log-dht/transport-info "Packet from ~a corrupt or invalid: ~v" peer body)]))
 
        (on (message (krpc-packet 'outbound $peer $id $type $body))
            (define p (synthesize-krpc-packet id type body))
