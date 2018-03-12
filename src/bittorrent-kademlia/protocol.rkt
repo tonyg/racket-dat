@@ -195,12 +195,8 @@
 
 (define (suggest-node! source id peer known-alive?)
   (match-define (udp-remote-address host port) peer)
-  (if (private-ip-address? host)
-      (log-dht/protocol-debug "Ignoring RFC 1918 network for ~a (~a) via ~a" (~id id) peer source)
-      (cond [(= 20 (bytes-length id))
-             (log-dht/protocol-debug "Suggested node ~a (~a) via ~a" (~id id) peer source)
-             (send! (discovered-node id peer known-alive?))]
-            [else (log-dht/protocol-debug "Ignoring suggestion of bogus ID ~a" (~id id))])))
+  (when (and (not (private-ip-address? host)) (= 20 (bytes-length id)))
+    (send! (discovered-node id peer known-alive?))))
 
 (define (format-nodes/peers ns)
   (for/list [(n ns)] (format "~a(~a)" (~id (car n)) (cdr n))))
