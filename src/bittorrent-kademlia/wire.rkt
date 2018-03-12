@@ -16,12 +16,11 @@
        (stop-when-reloaded)
 
        (define PORT 42769)
-       (define endpoint (udp-listener PORT))
 
        (during (nat-mapping 'udp #f PORT $assignment)
          (log-dht/transport-info "NAT port mapping: ~v" assignment))
 
-       (on (message (udp-packet $peer endpoint $body))
+       (on (message (udp-packet $peer (udp-listener PORT) $body))
            (match (with-handlers [(exn? (lambda (e) #f))] (bytes->bencode body))
              [(cons p '())
               (log-dht/transport-debug "RECEIVING ~a ~v" peer p)
@@ -42,7 +41,7 @@
                ['response (hash #"t" id #"y" #"r" #"r" body)]
                ['error    (hash #"t" id #"y" #"e" #"e" (list (car body) (cadr body)))]))
            (log-dht/transport-debug "SENDING ~a ~v" peer p)
-           (send! (udp-packet endpoint peer (bencode->bytes (list p)))))
+           (send! (udp-packet (udp-listener PORT) peer (bencode->bytes (list p)))))
 
-       (on (asserted (advertise (udp-packet _ endpoint _)))
+       (on (asserted (advertise (udp-packet _ (udp-listener PORT) _)))
            (log-dht/transport-info "Socket is ready.")))
