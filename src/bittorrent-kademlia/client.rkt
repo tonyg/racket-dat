@@ -131,12 +131,6 @@
               (define rhs (K-closest (record-holders) resource-id #:key record-holder-id))
               (participants-in resource-id rhs final?))))))
 
-(define (do-locate-participants resource-id)
-  (react/suspend (k)
-    (assert (locate-participants resource-id))
-    (stop-when (asserted (participants-in resource-id $rhs #t))
-      (k rhs))))
-
 (spawn #:name 'announce-participation-server
        (stop-when-reloaded)
 
@@ -150,7 +144,9 @@
 
            (on (asserted (later-than (refresh-time)))
                (refresh-time (next-refresh-time 8 10))
-               (define rhs (do-locate-participants resource-id))
+               (define rhs (react/suspend (k)
+                             (assert (locate-participants resource-id))
+                             (stop-when (asserted (participants-in resource-id $rhs #t)) (k rhs))))
                (log-dht/client-debug "Announcing to ~v" rhs)
                (for [(rh rhs)]
                  (match-define (record-holder id location token _has-records?) rh)
