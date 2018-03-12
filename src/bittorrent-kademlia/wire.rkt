@@ -25,14 +25,13 @@
            (match (with-handlers [(exn? (lambda (e) #f))] (bytes->bencode body))
              [(cons p '())
               (log-dht/transport-debug "RECEIVING ~a ~v" peer p)
-              (define id (hash-ref p #"t" #f))
               (define-values (type body)
                 (match (hash-ref p #"y" #f)
                   [#f (values #f #f)]
                   [#"q" (values 'request  (list (hash-ref p #"q" #f) (hash-ref p #"a" hash)))]
                   [#"r" (values 'response (hash-ref p #"r" hash))]
                   [#"e" (values 'error    (hash-ref p #"e" (lambda () (list #f #f))))]))
-              (when type (send! (krpc-packet 'inbound peer id type body)))]
+              (when type (send! (krpc-packet 'inbound peer (hash-ref p #"t" #f) type body)))]
              [_ (log-dht/transport-warning "Packet from ~a corrupt or invalid" peer)
                 (log-dht/transport-info "Packet from ~a corrupt or invalid: ~v" peer body)]))
 
