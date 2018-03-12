@@ -177,10 +177,7 @@
        [#f acc]
        [loc (bit-string (acc :: binary) (id :: binary bytes 20) (loc :: binary))]))))
 
-(define (take-at-most n xs)
-  (cond [(zero? n) '()]
-        [(null? xs) '()]
-        [else (cons (car xs) (take-at-most (- n 1) (cdr xs)))]))
+(define (take-at-most n xs) (for/list [(x (in-list xs)) (i (in-range n))] x))
 
 (define (query-all-nodes)
   (set->list (immediate-query [query-set (node-coordinates $i $p _) (list i p)])))
