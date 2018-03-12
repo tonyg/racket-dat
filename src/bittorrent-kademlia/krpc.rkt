@@ -151,6 +151,11 @@
                         (define token (hash-ref details #"token"))
                         (define tokens (immediate-query [query-value #f (valid-tokens $ts) ts]))
                         (cond
+                          [(private-ip-address? host)
+                           (log-dht/server-debug "Ignoring peer on RFC 1918 network: ~a ~a ~a"
+                                                 (~id info_hash) peer port)
+                           (send! (krpc-packet 'outbound peer txn 'error
+                                               (list 203 #"Bad IP address (RFC 1918 network)")))]
                           [(member token tokens)
                            (log-dht/server-debug "Announce ~a peer ~a (req port ~a) id ~a"
                                                  (~id info_hash) peer port (~id peer-id))

@@ -202,20 +202,21 @@
     (stop-when (asserted (krpc-transaction source-id target transaction-name method args $results))
       (k results))))
 
+(define (private-ip-address? x)
+  (match (map string->number (string-split x "."))
+    [(list 10 _ _ _) #t]
+    [(list 172 n _ _) (and (>= n 16) (< n 32))]
+    [(list 192 168 _ _) #t]
+    [_ #f]))
+
 (define (suggest-node! source id peer known-alive?)
   (match-define (udp-remote-address host port) peer)
-  (match (map string->number (string-split host "."))
-    [(or (list 10 _ _ _)
-         (list 172 (? (lambda (b) (and (>= b 16) (< b 32)))) _ _)
-         (list 192 168 _ _))
-     (log-dht/protocol-debug "Ignoring RFC 1918 network for ~a (~a) via ~a" (~id id) peer source)]
-    [_
-     (cond
-       [(= 20 (bytes-length id))
-        (log-dht/protocol-debug "Suggested node ~a (~a) via ~a" (~id id) peer source)
-        (send! (discovered-node id peer known-alive?))]
-       [else
-        (log-dht/protocol-debug "Ignoring suggestion of bogus ID ~a" (~id id))])]))
+  (if (private-ip-address? host)
+      (log-dht/protocol-debug "Ignoring RFC 1918 network for ~a (~a) via ~a" (~id id) peer source)
+      (cond [(= 20 (bytes-length id))
+             (log-dht/protocol-debug "Suggested node ~a (~a) via ~a" (~id id) peer source)
+             (send! (discovered-node id peer known-alive?))]
+            [else (log-dht/protocol-debug "Ignoring suggestion of bogus ID ~a" (~id id))])))
 
 (define (format-nodes/peers ns)
   (for/list [(n ns)] (format "~a(~a)" (~id (car n)) (cdr n))))
