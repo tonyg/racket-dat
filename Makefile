@@ -1,5 +1,5 @@
 PACKAGENAME=dat
-COLLECTS=dat protobuf blake2b
+COLLECTS=dat protobuf blake2b bittorrent-kademlia syndicate
 
 all: setup
 

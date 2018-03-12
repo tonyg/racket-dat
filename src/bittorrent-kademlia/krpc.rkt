@@ -3,10 +3,12 @@
 (require (only-in racket/random crypto-random-bytes))
 (require racket/set)
 (require bitsyntax)
+(require (only-in nat-traversal private-ip-address?))
 
 (require/activate syndicate/reload)
 (require/activate syndicate/drivers/udp)
 (require/activate syndicate/drivers/timestate)
+(require/activate syndicate/drivers/nat-traversal)
 (require syndicate/protocol/advertise)
 
 (require "wire.rkt")
@@ -21,6 +23,9 @@
 
        (define PORT 42769)
        (define endpoint (udp-listener PORT))
+
+       (during (nat-mapping 'udp #f PORT $assignment)
+         (log-dht/transport-info "NAT port mapping: ~v" assignment))
 
        (on (message (udp-packet $peer endpoint $body))
            (define p (decode-packet body peer))

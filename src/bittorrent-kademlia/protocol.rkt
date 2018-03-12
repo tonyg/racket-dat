@@ -7,6 +7,7 @@
 (require (only-in racket/string string-split))
 
 (require bitsyntax)
+(require (only-in nat-traversal private-ip-address?))
 (require syndicate/drivers/udp)
 
 (define-logger dht/protocol)
@@ -201,13 +202,6 @@
   (react/suspend (k)
     (stop-when (asserted (krpc-transaction source-id target transaction-name method args $results))
       (k results))))
-
-(define (private-ip-address? x)
-  (match (map string->number (string-split x "."))
-    [(list 10 _ _ _) #t]
-    [(list 172 n _ _) (and (>= n 16) (< n 32))]
-    [(list 192 168 _ _) #t]
-    [_ #f]))
 
 (define (suggest-node! source id peer known-alive?)
   (match-define (udp-remote-address host port) peer)
