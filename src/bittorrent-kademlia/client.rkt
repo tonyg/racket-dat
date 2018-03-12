@@ -10,7 +10,7 @@
 
 (define-logger dht/client)
 
-(define (recursive-resolver local-id target-id roots-list method args handle-response! build-status)
+(define (iterative-resolver local-id target-id roots-list method args handle-response! build-status)
   (field [bad-nodes (set)]
          [possible-nodes (set)]
          [asked-nodes (set)]
@@ -88,7 +88,7 @@
          (during/spawn (locate-node $target-id $roots-list)
            #:name (list 'locate-node (~id target-id))
            (stop-when-reloaded)
-           (recursive-resolver
+           (iterative-resolver
             local-id
             target-id
             roots-list
@@ -120,7 +120,7 @@
                  (match-define (udp-remote-address host port) p)
                  (send! (locate-participants:discovered-record
                          (participant-record resource-id host port))))))
-           (recursive-resolver
+           (iterative-resolver
             local-id
             resource-id
             #f
