@@ -76,8 +76,7 @@
           [else
            (log-dht/table-debug "Questionable node ~a, pinging (~a attempts made already)"
                                 (~id id) ping-count)
-           (match (do-krpc-transaction local-id id (list 'ping id (gensym))
-                                       #"ping" (hash #"id" id))
+           (match (do-krpc-transaction local-id id (list 'ping id (gensym)) #"ping" (hash #"id" id))
              ['error
               (log-dht/table-debug "Error pinging node ~a" (~id id))
               (ok? #f)]
