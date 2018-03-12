@@ -1,0 +1,75 @@
+✓ ping
+✓ find_node
+✓ get_peers (client)
+✓ get_peers (server)
+✓ announce_peer (client)
+✓ announce_peer (server)
+
+✓ Ping very near neighbours more frequently than others.
+
+Hash tokens info_hash and requesting IP/port into the token handed out on get_peers
+
+Only store things sufficiently close to our own node ID. Perhaps look
+at the 2*K closest nodes to our ID, see the maximum xor-distance in
+that group, and only accept announcements for resource IDs within that
+xor-distance.
+
+BEP44 for arbitrary data storage http://bittorrent.org/beps/bep_0044.html
+
+✓ Sort out the logging
+
+Sort out modules
+
+peers d872129f7af5a745184c715adfc14613e13ccc47
+(^ that's our hardcoded node!)
+
+peers f07e0b0584745b7bcb35e98097488d34e68623d0
+(^ the info_hash of an ubuntu torrent)
+
+peers 4cf2fa5b27cbad86ac42777bb3e2d0cdcf45ff69
+(^ the info_hash of a debian torrent)
+
+peers abd696bacfad22f35e7e21976f0d6b5033a0409e
+(^ the actual DHT key used when syncing the "cat pictures" repo -
+   it's the prefix of the blake2b256 hash of #"hypercore" with 0961...bc as key)
+
+dat 227d9212ee85c0f14416885c5390f2d270ba372252e781bf45a6b7056bb0a1b5
+(^ a dat repo of the irc mirror thing of #dat)
+
+peers 39b368dd4b5a2b8be5ad26a9340314d56df66646
+(^ discovery key for repo 227d9212ee85c0f14416885c5390f2d270ba372252e781bf45a6b7056bb0a1b5)
+
+ann abd696bacfad22f35e7e21976f0d6b5033a0409e
+
+peers 54578789dfc423eef6031f8194a93a16988b727b
+
+
+Bundle up all the service actors into a dataspace, and put an API
+across the dataspace boundary.
+
+Rename "peer" throughout to "transport-addr" or similar, because
+`peer` means "participant in a particular torrent" and also (here),
+"address of a node participating in the DHT". (Current "participant"
+denotes the former and "peer", the latter.)
+
+Only bother spawning a suggested node if either `known-alive?` or it
+could potentially fill out a non-full bucket.
+
+daemonize
+
+seals? profile.
+
+✓ Special-case bucket 160? Maybe let it have, oh, sixteen nodes
+instead of eight? Does this really help, in theory or in practice?
+
+Q. Is a running node in its own routing table, for the purposes of
+constructing replies to `find_node` requests? I'm guessing "no",
+because requestors already know about us, by virtue of already being
+in conversation.
+
+Q. Can a single IP/port have more than one node at it??? I think not?
+In which case not only should I update IP/port for a particular ID
+when I hear a request, I should update ID for a given IP/port when I
+hear a reply??
+
+https://scholarship.rice.edu/bitstream/handle/1911/96357/TR07-04.pdf?sequence=1&isAllowed=y
