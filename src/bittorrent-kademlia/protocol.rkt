@@ -142,18 +142,8 @@
         [(not a) #f]
         [else (bytes<? (bytes-xor reference a) (bytes-xor reference b))]))
 
-(define (node-id->number id)
-  (bit-string-case id ([(n :: big-endian bytes 20)] n)))
-
-(define (number->node-id n)
-  (bit-string->bytes (bit-string (n :: big-endian bytes 20))))
-
-(define (node-in-range? id lo hi)
-  (define n (node-id->number id))
-  (and (<= lo n) (< n hi)))
-
-(define (node-id->bucket id local-id)
-  (integer-length (node-id->number (bytes-xor id local-id))))
+(define (node-id->number id) (bit-string-case id ([(n :: big-endian bytes 20)] n)))
+(define (node-id->bucket id local-id) (integer-length (node-id->number (bytes-xor id local-id))))
 
 (define (extract-ip/port ip/port)
   (bit-string-case ip/port
@@ -220,13 +210,11 @@
      (* 1000 (+ (* lo-mins 60) (random (* (- hi-mins lo-mins) 60))))))
 
 (define (find-node/suggest txn-name&source local-id respondent target)
-  (define results
-    (do-krpc-transaction local-id respondent txn-name&source
-                         #"find_node" (hash #"id" local-id #"target" target)))
+  (define results (do-krpc-transaction local-id respondent txn-name&source
+                                       #"find_node" (hash #"id" local-id #"target" target)))
   (when (hash? results)
     (for [(p (extract-peers (hash-ref results #"nodes" #"")))]
       (suggest-node! txn-name&source (car p) (cadr p) #f)))
   results)
 
-(define (~id node-id)
-  (and (bytes? node-id) (bytes->hex-string node-id)))
+(define (~id node-id) (and (bytes? node-id) (bytes->hex-string node-id)))
