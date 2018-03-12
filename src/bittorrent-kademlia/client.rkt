@@ -10,13 +10,7 @@
 
 (define-logger dht/client)
 
-(define (recursive-resolver local-id
-                            target-id
-                            roots-list
-                            method
-                            args
-                            handle-response!
-                            build-status)
+(define (recursive-resolver local-id target-id roots-list method args handle-response! build-status)
   (field [bad-nodes (set)]
          [possible-nodes (set)]
          [asked-nodes (set)]
@@ -31,12 +25,9 @@
     (asked-nodes (set-add (asked-nodes) node/peer))
     (query-count (+ (query-count) 1))
     (react (on-stop (query-count (- (query-count) 1)))
-           (stop-when (asserted (krpc-transaction local-id
-                                                  peer
-                                                  (list method peer target-id)
-                                                  method
-                                                  args
-                                                  $results))
+           (stop-when
+               (asserted
+                (krpc-transaction local-id peer (list method peer target-id) method args $results))
              (match results
                [(or 'timeout 'error)
                 (possible-nodes (set-remove (possible-nodes) node/peer))
@@ -50,10 +41,9 @@
                 (possible-nodes (set-union (possible-nodes)
                                            (set-subtract (list->set peers) (bad-nodes))))
                 (define new-best-nodes (K-closest (set->list (possible-nodes)) target-id))
-                (if (equal? (best-nodes) new-best-nodes)
-                    (state 'stabilizing)
-                    (begin (state 'running)
-                           (best-nodes new-best-nodes)))]))))
+                (cond [(equal? (best-nodes) new-best-nodes) (state 'stabilizing)]
+                      [else (state 'running)
+                            (best-nodes new-best-nodes)])]))))
 
   (define (log-state askable-nodes)
     (log-dht/client-debug "query ~a in-flight ~a askable ~a asked ~a state ~a"
@@ -74,8 +64,7 @@
    (log-dht/client-info "New query: ~a ~a" method (~id target-id))
    (possible-nodes (list->set (or roots-list (K-closest (query-all-nodes) target-id))))
    (state 'running)
-   (for [(np (possible-nodes))]
-     (ask-node np)))
+   (for-each ask-node (set->list (possible-nodes))))
   (on-stop
    (log-dht/client-info "Query ~a ~a released." method (~id target-id)))
 
@@ -89,9 +78,8 @@
             (begin (log-dht/client-warning "query for ~a didn't stabilize, but has no askable-nodes"
                                            (~id target-id))
                    (state 'final))
-            (for [(node/peer (K-closest #:K available-parallelism
-                                        (set->list askable-nodes) target-id))]
-              (ask-node node/peer)))))))
+            (for-each ask-node (K-closest #:K available-parallelism
+                                          (set->list askable-nodes) target-id)))))))
 
 (spawn #:name 'locate-node-server
        (stop-when-reloaded)
@@ -100,14 +88,14 @@
          (during/spawn (locate-node $target-id $roots-list)
            #:name (list 'locate-node (~id target-id))
            (stop-when-reloaded)
-           (recursive-resolver local-id
-                               target-id
-                               roots-list
-                               #"find_node"
-                               (hash #"id" local-id #"target" target-id)
-                               (lambda (maybe-id peer results) (void))
-                               (lambda (best-nodes final?)
-                                 (closest-nodes-to target-id best-nodes final?))))))
+           (recursive-resolver
+            local-id
+            target-id
+            roots-list
+            #"find_node"
+            (hash #"id" local-id #"target" target-id)
+            (lambda (maybe-id peer results) (void))
+            (lambda (best-nodes final?) (closest-nodes-to target-id best-nodes final?))))))
 
 (spawn #:name 'locate-participants-server
        (stop-when-reloaded)
@@ -118,35 +106,30 @@
          (during/spawn (locate-participants $resource-id)
            #:name (list 'locate-participants (~id resource-id))
            (stop-when-reloaded)
-           (field [record-holders (list)])
            (on (message (locate-participants:discovered-record $r))
                (assert! r))
-           (recursive-resolver local-id
-                               resource-id
-                               #f
-                               #"get_peers"
-                               (hash #"id" local-id #"info_hash" resource-id)
-                               (lambda (id peer results)
-                                 (define token (hash-ref results #"token" #f))
-                                 (define ips/ports (hash-ref results #"values" #f))
-                                 (define has-records? (and (list? ips/ports)
-                                                           (andmap bytes? ips/ports)))
-                                 (when (bytes? token)
-                                   (record-holders (cons (record-holder id peer token has-records?)
-                                                         (record-holders))))
-                                 (when has-records?
-                                   (define peers
-                                     (filter values (for/list [(ip/port ips/ports)]
-                                                      (extract-ip/port ip/port))))
-                                   (for [(p peers)]
-                                     (match-define (udp-remote-address host port) p)
-                                     (send! (locate-participants:discovered-record
-                                             (participant-record resource-id host port))))))
-                               (lambda (_best-nodes final?)
-                                 (participants-in resource-id
-                                                  (K-closest (record-holders) resource-id
-                                                             #:key record-holder-id)
-                                                  final?))))))
+           (field [record-holders (list)])
+           (define (handle-response! id peer results)
+             (define token (hash-ref results #"token" #f))
+             (define ips/ports (hash-ref results #"values" #f))
+             (define has-records? (and (list? ips/ports) (andmap bytes? ips/ports)))
+             (when (bytes? token)
+               (record-holders (cons (record-holder id peer token has-records?) (record-holders))))
+             (when has-records?
+               (for [(p (filter values (for/list [(ip/port ips/ports)] (extract-ip/port ip/port))))]
+                 (match-define (udp-remote-address host port) p)
+                 (send! (locate-participants:discovered-record
+                         (participant-record resource-id host port))))))
+           (recursive-resolver
+            local-id
+            resource-id
+            #f
+            #"get_peers"
+            (hash #"id" local-id #"info_hash" resource-id)
+            handle-response!
+            (lambda (_best-nodes final?)
+              (define rhs (K-closest (record-holders) resource-id #:key record-holder-id))
+              (participants-in resource-id rhs final?))))))
 
 (define (do-locate-participants resource-id)
   (react/suspend (k)
