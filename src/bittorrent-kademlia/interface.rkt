@@ -72,6 +72,16 @@
                  (flush-output)
                  (reply peer "Done. Check stdout\n")]
 
+                ["store"
+                 (define recs (set->list (immediate-query [query-set (participant-record $ih $h $p)
+                                                                     (list ih h p)])))
+                 (printf "~a stored records in total.\n" (length recs))
+                 (for [(r (sort recs #:key car bytes<?))]
+                   (match-define (list info_hash host port) r)
+                   (printf "Stored record resource ~a host ~a port ~a\n" (~id info_hash) host port))
+                 (flush-output)
+                 (reply peer "Done. Check stdout\n")]
+
                 [(regexp #px"^watch (.*)$" (list _ id-str))
                  (define id (hex-string->bytes id-str))
                  (react
