@@ -80,8 +80,7 @@
              ['error
               (log-dht/table-debug "Error pinging node ~a" (~id id))
               (ok? #f)]
-             ['timeout
-              (try-pinging (+ ping-count 1))]
+             ['timeout (try-pinging (+ ping-count 1))]
              [result
               (define remote-node-id (hash-ref result #"id" #f))
               (if (and remote-node-id (not (equal? remote-node-id id)))
