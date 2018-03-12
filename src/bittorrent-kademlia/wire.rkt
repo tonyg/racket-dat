@@ -12,20 +12,6 @@
 
 (define-logger dht/transport)
 
-(define (synthesize-krpc-packet id type body)
-  (match type
-    ['request  (hash #"t" id #"y" #"q" #"q" (car body) #"a" (cadr body))]
-    ['response (hash #"t" id #"y" #"r" #"r" body)]
-    ['error    (hash #"t" id #"y" #"e" #"e" (list (car body) (cadr body)))]))
-
-(define (analyze-krpc-packet packet)
-  (define id (hash-ref packet #"t" #f))
-  (match (hash-ref packet #"y" #f)
-    [#f (values id #f #f)]
-    [#"q" (values id 'request  (list (hash-ref packet #"q" #f) (hash-ref packet #"a" hash)))]
-    [#"r" (values id 'response (hash-ref packet #"r" hash))]
-    [#"e" (values id 'error    (hash-ref packet #"e" (lambda () (list #f #f))))]))
-
 (spawn #:name 'kademlia-krpc-udp-transport
        (stop-when-reloaded)
 
@@ -39,13 +25,23 @@
            (match (with-handlers [(exn? (lambda (e) #f))] (bytes->bencode body))
              [(cons p '())
               (log-dht/transport-debug "RECEIVING ~a ~v" peer p)
-              (define-values (id type body) (analyze-krpc-packet p))
-              (send! (krpc-packet 'inbound peer id type body))]
+              (define id (hash-ref p #"t" #f))
+              (define-values (type body)
+                (match (hash-ref p #"y" #f)
+                  [#f (values #f #f)]
+                  [#"q" (values 'request  (list (hash-ref p #"q" #f) (hash-ref p #"a" hash)))]
+                  [#"r" (values 'response (hash-ref p #"r" hash))]
+                  [#"e" (values 'error    (hash-ref p #"e" (lambda () (list #f #f))))]))
+              (when type (send! (krpc-packet 'inbound peer id type body)))]
              [_ (log-dht/transport-warning "Packet from ~a corrupt or invalid" peer)
                 (log-dht/transport-info "Packet from ~a corrupt or invalid: ~v" peer body)]))
 
        (on (message (krpc-packet 'outbound $peer $id $type $body))
-           (define p (synthesize-krpc-packet id type body))
+           (define p
+             (match type
+               ['request  (hash #"t" id #"y" #"q" #"q" (car body) #"a" (cadr body))]
+               ['response (hash #"t" id #"y" #"r" #"r" body)]
+               ['error    (hash #"t" id #"y" #"e" #"e" (list (car body) (cadr body)))]))
            (log-dht/transport-debug "SENDING ~a ~v" peer p)
            (send! (udp-packet endpoint peer (bencode->bytes (list p)))))
 
