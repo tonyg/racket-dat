@@ -12,8 +12,8 @@
 (require "protocol.rkt")
 (require "../dat/discovery.rkt")
 
-(message-struct ui-watch (id))
-(message-struct ui-unwatch (id))
+(message-struct ui-watch (name))
+(message-struct ui-unwatch (name))
 
 (spawn #:name 'kademlia-user-interface
        (stop-when-reloaded)
@@ -21,50 +21,53 @@
        (define PORT 5463)
        (define endpoint (udp-listener PORT))
 
-       (define ((reply peer) fmt . args)
-         (send! (udp-packet endpoint peer (string->bytes/utf-8 (apply format fmt args)))))
+       (define ((reply addr) fmt . args)
+         (send! (udp-packet endpoint addr (string->bytes/utf-8 (apply format fmt args)))))
 
-       (during (local-node $local-id)
-         (on (message (udp-packet $peer endpoint $body))
+       (during (local-node $local-name)
+         (on (message (udp-packet $addr endpoint $body))
              (spawn* #:name (list 'udp-interface-handler body)
-                     (handle-command (reply peer) local-id body)))))
+                     (handle-command (reply addr) local-name body)))))
 
-(define (track-peers reply id)
-  (react (assert (locate-participants id))
-         (stop-when (message (ui-unwatch id)) (reply "peers ~a : done\n" (~id id)))
+(define (track-addrs reply name)
+  (react (assert (locate-participants name))
+         (stop-when (message (ui-unwatch name)) (reply "addrs ~a : done\n" (~name name)))
 
          (field [rs (set)])
-         (on (asserted (participant-record id $host $port))
+         (on (asserted (participant-record name $host $port))
              (rs (set-add (rs) (list host port)))
-             (reply "~a participant discovered: ~a:~a\n" (~id id) host port))
+             (reply "~a participant discovered: ~a:~a\n" (~name name) host port))
 
-         (on (asserted (participants-in id $npts $final?))
+         (on (asserted (participants-in name $npts $final?))
              (define summary
                (with-output-to-string
                  (lambda ()
-                   (printf "~a participants ~a:\nnodes:\n" (if final? "final" "partial") (~id id))
+                   (printf "~a participants ~a:\nnodes:\n"
+                           (if final? "final" "partial")
+                           (~name name))
                    (for [(npt npts)]
                      (match-define (record-holder n p token rs?) npt)
-                     (printf "  ~a ~v ~a ~v\n" (~id n) rs? p token))
+                     (printf "  ~a ~v ~a ~v\n" (~name n) rs? p token))
                    (when final?
                      (printf "total of ~a participants discovered\n" (set-count (rs)))))))
              (reply "~a" summary))))
 
-(define (handle-command reply local-id body)
+(define (handle-command reply local-name body)
   (match (string-trim (bytes->string/utf-8 body))
 
     ["list"
      (define all-entries
        (set->list (immediate-query [query-set (node-coordinates $i $p $t) (list i p t)])))
-     (printf "Local ID is ~a; ~a nodes in table\n" (~id local-id) (length all-entries))
-     (define grouped (sort (group-by (lambda (e) (node-id->bucket (car e) local-id)) all-entries) >
-                           #:key (lambda (g) (node-id->bucket (car (car g)) local-id))))
+     (printf "Local name is ~a; ~a nodes in table\n" (~name local-name) (length all-entries))
+     (define grouped
+       (sort (group-by (lambda (e) (node-name->bucket (car e) local-name)) all-entries) >
+             #:key (lambda (g) (node-name->bucket (car (car g)) local-name))))
      (for [(group grouped)]
-       (define bucket (node-id->bucket (car (car group)) local-id))
+       (define bucket (node-name->bucket (car (car group)) local-name))
        (printf "Bucket ~a:\n" bucket)
-       (for [(entry (sort group #:key car (distance-to-<? local-id)))]
+       (for [(entry (sort group #:key car (distance-to-<? local-name)))]
          (match-define (list i p t) entry)
-         (printf "  node ~a: ~a (~a)\n" (~id i) p t)))
+         (printf "  node ~a: ~a (~a)\n" (~name i) p t)))
      (flush-output)
      (reply "Done. Check stdout\n")]
 
@@ -74,41 +77,41 @@
      (printf "~a stored records in total.\n" (length recs))
      (for [(r (sort recs #:key car bytes<?))]
        (match-define (list info_hash host port) r)
-       (printf "Stored record resource ~a host ~a port ~a\n" (~id info_hash) host port))
+       (printf "Stored record resource ~a host ~a port ~a\n" (~name info_hash) host port))
      (flush-output)
      (reply "Done. Check stdout\n")]
 
-    [(regexp #px"^watch (.*)$" (list _ id-str))
-     (define id (hex-string->bytes id-str))
-     (react (assert (locate-node id #f))
-            (stop-when (message (ui-unwatch id)) (reply "~a : done\n" (~id id)))
-            (on (asserted (closest-nodes-to id $ns $final?))
+    [(regexp #px"^watch (.*)$" (list _ name-str))
+     (define name (hex-string->bytes name-str))
+     (react (assert (locate-node name #f))
+            (stop-when (message (ui-unwatch name)) (reply "~a : done\n" (~name name)))
+            (on (asserted (closest-nodes-to name $ns $final?))
                 (define summary
                   (with-output-to-string
                     (lambda ()
-                      (printf "~a ~a:\n" (if final? "final" "partial") (~id id))
-                      (for [(n ns)] (printf "  ~a ~a\n" (~id (car n)) (cadr n))))))
+                      (printf "~a ~a:\n" (if final? "final" "partial") (~name name))
+                      (for [(n ns)] (printf "  ~a ~a\n" (~name (car n)) (cadr n))))))
                 (reply "~a" summary)))]
 
-    [(regexp #px"^peers (.*)$" (list _ id-str))
-     (track-peers reply (hex-string->bytes id-str))]
+    [(regexp #px"^addrs (.*)$" (list _ name-str))
+     (track-addrs reply (hex-string->bytes name-str))]
 
-    [(regexp #px"^dat (.*)$" (list _ id-str))
-     (track-peers reply (subbytes (discovery-key (hex-string->bytes id-str)) 0 20))]
+    [(regexp #px"^dat (.*)$" (list _ name-str))
+     (track-addrs reply (subbytes (discovery-key (hex-string->bytes name-str)) 0 20))]
 
-    [(regexp #px"^un([^ ]*) (.*)$" (list _ _ id-str))
-     (send! (ui-unwatch (hex-string->bytes id-str)))
-     (send! (ui-unwatch (subbytes (discovery-key (hex-string->bytes id-str)) 0 20)))
+    [(regexp #px"^un([^ ]*) (.*)$" (list _ _ name-str))
+     (send! (ui-unwatch (hex-string->bytes name-str)))
+     (send! (ui-unwatch (subbytes (discovery-key (hex-string->bytes name-str)) 0 20)))
      (reply "ok\n")]
 
-    [(regexp #px"^ann (.*) (.*)$" (list _ id-str port-str))
-     (define id (hex-string->bytes id-str))
+    [(regexp #px"^ann (.*) (.*)$" (list _ name-str port-str))
+     (define name (hex-string->bytes name-str))
      (define port (string->number port-str))
-     (react (assert (announce-participation id (if (zero? port) #f port)))
-            (stop-when (message (ui-unwatch id)))
-            (on-start (reply "~a : announcement started\n" (~id id)))
-            (on-stop (reply "~a : announcement stopped\n" (~id id))))]
+     (react (assert (announce-participation name (if (zero? port) #f port)))
+            (stop-when (message (ui-unwatch name)))
+            (on-start (reply "~a : announcement started\n" (~name name)))
+            (on-stop (reply "~a : announcement stopped\n" (~name name))))]
 
-    ["tokens" (reply "~a\n" (map ~id (immediate-query [query-value '() (valid-tokens $ts) ts])))]
+    ["tokens" (reply "~a\n" (map ~name (immediate-query [query-value '() (valid-tokens $ts) ts])))]
 
     [line (reply "Unhandled: ~a\n" line)]))

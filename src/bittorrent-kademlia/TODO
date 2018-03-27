@@ -20,34 +20,34 @@ BEP44 for arbitrary data storage http://bittorrent.org/beps/bep_0044.html
 
 Sort out modules
 
-peers d872129f7af5a745184c715adfc14613e13ccc47
+addrs d872129f7af5a745184c715adfc14613e13ccc47
 (^ that's our hardcoded node!)
 
-peers f07e0b0584745b7bcb35e98097488d34e68623d0
+addrs f07e0b0584745b7bcb35e98097488d34e68623d0
 (^ the info_hash of an ubuntu torrent)
 
-peers 4cf2fa5b27cbad86ac42777bb3e2d0cdcf45ff69
+addrs 4cf2fa5b27cbad86ac42777bb3e2d0cdcf45ff69
 (^ the info_hash of a debian torrent)
 
-peers abd696bacfad22f35e7e21976f0d6b5033a0409e
+addrs abd696bacfad22f35e7e21976f0d6b5033a0409e
 (^ the actual DHT key used when syncing the "cat pictures" repo -
    it's the prefix of the blake2b256 hash of #"hypercore" with 0961...bc as key)
 
 dat 227d9212ee85c0f14416885c5390f2d270ba372252e781bf45a6b7056bb0a1b5
 (^ a dat repo of the irc mirror thing of #dat)
 
-peers 39b368dd4b5a2b8be5ad26a9340314d56df66646
+addrs 39b368dd4b5a2b8be5ad26a9340314d56df66646
 (^ discovery key for repo 227d9212ee85c0f14416885c5390f2d270ba372252e781bf45a6b7056bb0a1b5)
 
-ann abd696bacfad22f35e7e21976f0d6b5033a0409e
+ann abd696bacfad22f35e7e21976f0d6b5033a0409e 0
 
-peers 54578789dfc423eef6031f8194a93a16988b727b
+addrs 54578789dfc423eef6031f8194a93a16988b727b
 
 
 Bundle up all the service actors into a dataspace, and put an API
 across the dataspace boundary.
 
-Rename "peer" throughout to "transport-addr" or similar, because
+✓ Rename "peer" throughout to "transport-addr" or similar, because
 `peer` means "participant in a particular torrent" and also (here),
 "address of a node participating in the DHT". (Current "participant"
 denotes the former and "peer", the latter.)

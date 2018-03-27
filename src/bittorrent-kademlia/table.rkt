@@ -12,80 +12,81 @@
 
 (spawn #:name 'node-factory
        (stop-when-reloaded)
-       (define/query-set ids (known-node $id) id)
-       (on (message (discovered-node $id $peer $known-alive?))
-           (when (not (set-member? (ids) id))
-             (ids (set-add (ids) id))
-             (spawn #:name (list 'node (~id id))
-                    #:assertions (known-node id)
+       (define/query-set names (known-node $name) name)
+       (on (message (discovered-node $name $addr $known-alive?))
+           (when (not (set-member? (names) name))
+             (names (set-add (names) name))
+             (spawn #:name (list 'node (~name name))
+                    #:assertions (known-node name)
                     (stop-when-reloaded)
-                    (on-start (log-dht/table-debug "Tracking node ~a at ~a" (~id id) peer))
-                    (on-stop (log-dht/table-debug "Terminated node ~a at ~a" (~id id) peer))
-                    (node-main id peer known-alive?)))))
+                    (on-start (log-dht/table-debug "Tracking node ~a at ~a" (~name name) addr))
+                    (on-stop (log-dht/table-debug "Terminated node ~a at ~a" (~name name) addr))
+                    (node-main name addr known-alive?)))))
 
-(define (node-main id initial-peer initially-known-alive?)
+(define (node-main name initial-addr initially-known-alive?)
   (field [time-last-heard-from (current-inexact-milliseconds)]
          [timeout-counter 0]
          [ok? #t]
-         [peer initial-peer])
+         [addr initial-addr])
 
   (define node-root-facet (current-facet-id))
 
-  (assert (known-node id))
-  (assert #:when (ok?) (node-coordinates id (peer) (time-last-heard-from)))
+  (assert (known-node name))
+  (assert #:when (ok?) (node-coordinates name (addr) (time-last-heard-from)))
 
-  (on (message (discovered-node id $new-peer $known-alive?))
+  (on (message (discovered-node name $new-addr $known-alive?))
       (when known-alive? ;; suggestion doubles as indication of actual node activity
         (time-last-heard-from (current-inexact-milliseconds))
         (timeout-counter 0))
-      (when (not (equal? (peer) new-peer))
-        (log-dht/table-debug "Node ~a changed IP/port: from ~a to ~a" (~id id) (peer) new-peer)
-        (peer new-peer)))
+      (when (not (equal? (addr) new-addr))
+        (log-dht/table-debug "Node ~a changed IP/port: from ~a to ~a" (~name name) (addr) new-addr)
+        (addr new-addr)))
 
-  (on (message (node-timeout id))
+  (on (message (node-timeout name))
       (timeout-counter (+ (timeout-counter) 1)))
 
   (begin/dataflow
     (when (>= (timeout-counter) 3)
-      (log-dht/table-debug "Too many timeouts for node ~a" (~id id))
+      (log-dht/table-debug "Too many timeouts for node ~a" (~name name))
       (ok? #f)))
 
   (begin/dataflow
     (when (not (ok?))
-      (log-dht/table-debug "Node ~a no longer ok" (~id id))
+      (log-dht/table-debug "Node ~a no longer ok" (~name name))
       (react (stop-when-timeout (* 60 1000) (stop-facet node-root-facet))
              (stop-when-true (ok?)
-               (log-dht/table-debug "Node ~a is ok again" (~id id))))))
+               (log-dht/table-debug "Node ~a is ok again" (~name name))))))
 
-  (on (message (discard-node id))
-      (log-dht/table-debug "Discarding node ~a" (~id id))
+  (on (message (discard-node name))
+      (log-dht/table-debug "Discarding node ~a" (~name name))
       (ok? #f))
 
-  (during (local-node $local-id)
-    (assert #:when (ok?) (node-bucket (node-id->bucket id local-id) id))
+  (during (local-node $local-name)
+    (assert #:when (ok?) (node-bucket (node-name->bucket name local-name) name))
 
     (define (ping-until-fresh-or-bad)
       (define snapshot-time-last-heard-from (time-last-heard-from))
-      (log-dht/table-debug "Node ~a became questionable" (~id id))
+      (log-dht/table-debug "Node ~a became questionable" (~name name))
       (let try-pinging ((ping-count 0))
         (cond
           [(> (time-last-heard-from) snapshot-time-last-heard-from)
-           (log-dht/table-debug "Activity from node ~a, no longer questionable" (~id id))]
+           (log-dht/table-debug "Activity from node ~a, no longer questionable" (~name name))]
           [(not (ok?))
-           (log-dht/table-debug "Stopped pinging ~a; questionable node now deemed not OK" (~id id))]
+           (log-dht/table-debug "Stopped pinging ~a; was questionable, now not OK" (~name name))]
           [else
            (log-dht/table-debug "Questionable node ~a, pinging (~a attempts made already)"
-                                (~id id) ping-count)
-           (match (do-krpc-transaction local-id id (list 'ping id (gensym)) #"ping" (hash #"id" id))
+                                (~name name) ping-count)
+           (match (do-krpc-transaction local-name name (list 'ping name (gensym))
+                                       #"ping" (hash #"id" name))
              ['error
-              (log-dht/table-debug "Error pinging node ~a" (~id id))
+              (log-dht/table-debug "Error pinging node ~a" (~name name))
               (ok? #f)]
              ['timeout (try-pinging (+ ping-count 1))]
              [result
-              (define remote-node-id (hash-ref result #"id" #f))
-              (if (and remote-node-id (not (equal? remote-node-id id)))
-                  (begin (log-dht/table-debug "Ping reply had id ~a, not ~a"
-                                              (~id remote-node-id) (~id id))
+              (define remote-node-name (hash-ref result #"id" #f))
+              (if (and remote-node-name (not (equal? remote-node-name name)))
+                  (begin (log-dht/table-debug "Ping reply had name ~a, not ~a"
+                                              (~name remote-node-name) (~name name))
                          (ok? #f))
                   (try-pinging (+ ping-count 1)))])])))
 
@@ -98,7 +99,7 @@
       (on-start (define snapshot-time-last-heard-from (time-last-heard-from))
                 (sleep (+ 25 (random 10)))
                 (when (equal? snapshot-time-last-heard-from (time-last-heard-from))
-                  (log-dht/table-debug "Starting initial ping for ~a" (~id id))
+                  (log-dht/table-debug "Starting initial ping for ~a" (~name name))
                   (ping-until-fresh-or-bad))))))
 
 (spawn #:name 'neighbourhood-maintainer
@@ -106,10 +107,13 @@
 
        (field [refresh-time (+ (current-inexact-milliseconds) (* 2 60 1000))])
 
-       (during (local-node $local-id)
+       (during (local-node $local-name)
          (on (asserted (later-than (refresh-time)))
              (refresh-time (next-refresh-time 10 15))
-             (define closest-nodes/peers (K-closest (query-all-nodes) local-id))
+             (define closest-nodes/addrs (K-closest (query-all-nodes) local-name))
              (log-dht/neighbourhood-info "Refreshing local neighbourhood")
-             (for [(np closest-nodes/peers)]
-               (find-node/suggest (list 'neighbourhood (car np)) local-id (cadr np) local-id)))))
+             (for [(np closest-nodes/addrs)]
+               (find-node/suggest (list 'neighbourhood (car np))
+                                  local-name
+                                  (cadr np)
+                                  local-name)))))
